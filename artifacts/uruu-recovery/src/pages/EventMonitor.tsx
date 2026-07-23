@@ -1,91 +1,78 @@
-import React, { useState } from 'react';
+import React, { useEffect } from 'react';
 import { useListEvents } from '@workspace/api-client-react';
-import { Card } from '@/components/ui/card';
-import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell, Badge, Input, Button } from '@/components/ui/core';
-import { HashChip } from '@/components/ui/chip';
-import { formatDate } from '@/lib/utils';
-import { Activity, Download } from 'lucide-react';
+import TerminalLine from '../components/TerminalLine';
+import HashChip from '../components/HashChip';
 
 export default function EventMonitor() {
-  const [filterType, setFilterType] = useState('');
-  
-  const { data } = useListEvents(
-    { limit: 100, eventType: filterType || undefined }, 
-    { query: { refetchInterval: 5000 } }
-  );
+  const { data: eventsData, isLoading, refetch } = useListEvents({ limit: 50 });
 
-  const handleDownload = () => {
-    if (!data) return;
-    const blob = new Blob([JSON.stringify(data.items, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `uruu-events-${Date.now()}.json`;
-    a.click();
+  // Auto-refresh the feed
+  useEffect(() => {
+    const interval = setInterval(() => refetch(), 5000);
+    return () => clearInterval(interval);
+  }, [refetch]);
+
+  const events = eventsData?.items || [];
+
+  const getEventColor = (type: string) => {
+    if (type.includes('Contested')) return 'text-secondary neon-flicker';
+    if (type.includes('Initiated')) return 'text-accent text-glow-amber';
+    if (type.includes('Approved')) return 'text-primary text-glow font-bold';
+    if (type.includes('Finalized')) return 'text-white shadow-[0_0_10px_rgba(255,255,255,0.8)]';
+    return 'text-primary/80';
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-border pb-6">
-        <div className="flex items-center gap-3">
-          <div className="p-3 bg-primary/10 text-primary rounded-xl">
-            <Activity className="w-8 h-8 animate-pulse" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Event Monitor</h1>
-            <p className="text-muted-foreground mt-1">Real-time cryptographic audit log.</p>
-          </div>
+    <div className="space-y-6 max-w-6xl mx-auto h-[calc(100vh-120px)] flex flex-col">
+      <div className="flex items-center justify-between border-b border-primary/30 pb-4 shrink-0">
+        <div>
+           <h1 className="text-2xl font-mono font-bold text-primary tracking-widest">
+             // SYSTEM_FEED
+           </h1>
+           <p className="text-primary/50 text-sm font-mono mt-1">Raw telemetry and consensus events</p>
         </div>
-        <div className="flex items-center gap-3 w-full md:w-auto">
-          <Input 
-            placeholder="Filter by Type..." 
-            value={filterType}
-            onChange={e => setFilterType(e.target.value)}
-            className="w-full md:w-64"
-          />
-          <Button variant="outline" onClick={handleDownload} className="gap-2 shrink-0">
-            <Download className="w-4 h-4" /> Export
-          </Button>
+        <div className="flex items-center gap-3 bg-secondary/10 border border-secondary/30 px-4 py-1.5 rounded-none">
+          <div className="w-2 h-2 rounded-full bg-secondary animate-pulse shadow-[0_0_8px_rgba(255,0,50,0.8)]" />
+          <span className="font-mono text-xs text-secondary tracking-widest font-bold">LIVE FEED</span>
         </div>
       </div>
 
-      <Card>
-        <div className="max-h-[70vh] overflow-auto relative rounded-md">
-          <Table>
-            <TableHeader className="sticky top-0 bg-card z-10 shadow-sm">
-              <TableRow>
-                <TableHead className="w-[180px]">Timestamp</TableHead>
-                <TableHead className="w-[150px]">Event Type</TableHead>
-                <TableHead className="w-[150px]">Request ID</TableHead>
-                <TableHead>Data Payload</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {data?.items.map(ev => (
-                <TableRow key={ev.id} className="hover:bg-primary/5">
-                  <TableCell className="font-mono text-[11px] text-muted-foreground whitespace-nowrap">
-                    {formatDate(ev.timestamp)}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="outline" className="font-mono text-[10px] bg-background">
-                      {ev.eventType}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    {ev.requestId ? <HashChip hash={ev.requestId} /> : <span className="text-muted-foreground">-</span>}
-                  </TableCell>
-                  <TableCell className="font-mono text-[10px] text-muted-foreground max-w-xl truncate">
-                    {ev.dataJson}
-                  </TableCell>
-                </TableRow>
-              ))}
-              {!data?.items.length && (
-                <TableRow><TableCell colSpan={4} className="text-center py-12 text-muted-foreground">No events found.</TableCell></TableRow>
-              )}
-            </TableBody>
-          </Table>
+      <div className="matrix-card flex-1 overflow-hidden flex flex-col">
+        <div className="bg-black border-b border-primary/20 px-4 py-2 flex items-center justify-between text-xs font-mono text-primary/50 tracking-widest">
+          <div className="w-32">TIMESTAMP</div>
+          <div className="w-48">EVENT_TYPE</div>
+          <div className="w-32">ENTITY_ID</div>
+          <div className="flex-1">PAYLOAD</div>
         </div>
-      </Card>
+        
+        <div className="flex-1 overflow-y-auto p-4 space-y-1 font-mono text-sm relative">
+          <div className="absolute inset-0 bg-[linear-gradient(rgba(0,255,65,0.03)_1px,transparent_1px)] bg-[size:100%_4px] pointer-events-none z-10" />
+          
+          {isLoading ? (
+            <TerminalLine text="Establishing secure connection to event stream..." />
+          ) : events.length === 0 ? (
+            <TerminalLine text="No events detected in current window." />
+          ) : (
+            events.map((event) => (
+              <div key={event.id} className="flex items-start gap-4 py-2 border-b border-primary/10 hover:bg-primary/5 transition-colors relative z-20 group">
+                <div className="w-32 text-primary/40 shrink-0">
+                  {new Date(event.timestamp).toLocaleTimeString(undefined, { hour12: false, fractionalSecondDigits: 3 })}
+                </div>
+                <div className={`w-48 shrink-0 ${getEventColor(event.eventType)}`}>
+                  {event.eventType}
+                </div>
+                <div className="w-32 shrink-0">
+                  {event.requestId ? <HashChip hash={event.requestId} /> : <span className="text-muted-foreground">-</span>}
+                </div>
+                <div className="flex-1 text-primary/60 truncate group-hover:text-primary/90 transition-colors">
+                  {event.dataJson}
+                </div>
+              </div>
+            ))
+          )}
+          <div className="pt-4"><div className="cursor-blink inline-block" /></div>
+        </div>
+      </div>
     </div>
   );
 }

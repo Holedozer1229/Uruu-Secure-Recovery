@@ -1,0 +1,247 @@
+### Overview
+
+This document provides **EIP‑712 typed data schemas** and **canonical serialization helpers** for URUU verifier receipts and guardian approvals, plus on‑chain verification snippets and an integration checklist. Use these artifacts to produce unambiguous signed messages, prevent replay, and verify signatures on EVM chains. All examples use **synthetic** values and are safe for testing.
+
+---
+
+### EIP‑712 Typed Data Schemas
+
+**Domain parameters**  
+- **name**: `"URUU Recovery"`  
+- **version**: `"1"` (increment on schema changes)  
+- **chainId**: chain numeric id (e.g., `1` for mainnet)  
+- **verifyingContract**: contract address that will accept receipts
+
+**Typed data for ProofReceipt**  
+```json
+{
+  "EIP712Domain": [
+    {"name":"name","type":"string"},
+    {"name":"version","type":"string"},
+    {"name":"chainId","type":"uint256"},
+    {"name":"verifyingContract","type":"address"}
+  ],
+  "ProofReceipt": [
+    {"name":"requestId","type":"bytes32"},
+    {"name":"accountId","type":"bytes32"},
+    {"name":"proofHash","type":"bytes32"},
+    {"name":"proofNonce","type":"bytes32"},
+    {"name":"circuitVersion","type":"string"},
+    {"name":"timestamp","type":"uint256"},
+    {"name":"verifierId","type":"string"}
+  ]
+}
+```
+
+**Typed data for GuardianApproval**  
+```json
+{
+  "EIP712Domain": [
+    {"name":"name","type":"string"},
+    {"name":"version","type":"string"},
+    {"name":"chainId","type":"uint256"},
+    {"name":"verifyingContract","type":"address"}
+  ],
+  "GuardianApproval": [
+    {"name":"requestId","type":"bytes32"},
+    {"name":"proofHash","type":"bytes32"},
+    {"name":"guardianId","type":"address"},
+    {"name":"timestamp","type":"uint256"}
+  ]
+}
+```
+
+**Signing semantics**  
+- Signers compute the EIP‑712 digest `keccak256("\x19\x01" || domainSeparator || structHash)` and sign with their private key.  
+- **verifierId** and **circuitVersion** are human‑readable strings included in the typed data for auditability.  
+- Use the same domain parameters for all receipts and approvals for a given contract deployment.
+
+---
+
+### Canonical Serialization Helpers TypeScript
+
+**Purpose**  
+Provide deterministic byte serialization for off‑chain signing and on‑chain fallback verification.
+
+**Utilities (TypeScript)**
+
+```ts
+// utils/eip712.ts
+import { keccak256, toUtf8Bytes, defaultAbiCoder } from "ethers/lib/utils";
+
+/** Domain separator */
+export function domainSeparator(name: string, version: string, chainId: number, verifyingContract: string): string {
+  const domainTypeHash = keccak256(toUtf8Bytes("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"));
+  const nameHash = keccak256(toUtf8Bytes(name));
+  const versionHash = keccak256(toUtf8Bytes(version));
+  const encoded = defaultAbiCoder.encode(
+    ["bytes32","bytes32","bytes32","uint256","address"],
+    [domainTypeHash, nameHash, versionHash, chainId, verifyingContract]
+  );
+  return keccak256(encoded);
+}
+
+/** ProofReceipt struct hash */
+export function proofReceiptStructHash(
+  requestId: string,
+  accountId: string,
+  proofHash: string,
+  proofNonce: string,
+  circuitVersion: string,
+  timestamp: number,
+  verifierId: string
+): string {
+  const typeHash = keccak256(toUtf8Bytes("ProofReceipt(bytes32 requestId,bytes32 accountId,bytes32 proofHash,bytes32 proofNonce,string circuitVersion,uint256 timestamp,string verifierId)"));
+  const circuitHash = keccak256(toUtf8Bytes(circuitVersion));
+  const verifierHash = keccak256(toUtf8Bytes(verifierId));
+  const encoded = defaultAbiCoder.encode(
+    ["bytes32","bytes32","bytes32","bytes32","bytes32","uint256","bytes32"],
+    [typeHash, requestId, accountId, proofHash, proofNonce, timestamp, keccak256(toUtf8Bytes(circuitVersion + verifierId))]
+  );
+  return keccak256(encoded);
+}
+
+/** EIP712 digest */
+export function eip712Digest(domainSep: string, structHash: string): string {
+  return keccak256(Buffer.concat([Buffer.from("1901", "hex"), Buffer.from(domainSep.slice(2), "hex"), Buffer.from(structHash.slice(2), "hex")]));
+}
+```
+
+**Notes**  
+- Use `ethers` or equivalent for ABI encoding and hashing.  
+- Keep canonical ordering exactly as in the typed data schema.  
+- For on‑chain verification using `ecrecover`, compute the same digest off‑chain and verify the recovered address equals the registered verifier or guardian.
+
+---
+
+### Solidity Verification Snippets
+
+**EIP‑712 domain and type hashes**
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+contract URUUVerifier {
+    bytes32 public DOMAIN_SEPARATOR;
+    bytes32 public constant PROOF_RECEIPT_TYPEHASH = keccak256(
+        "ProofReceipt(bytes32 requestId,bytes32 accountId,bytes32 proofHash,bytes32 proofNonce,string circuitVersion,uint256 timestamp,string verifierId)"
+    );
+    bytes32 public constant GUARDIAN_APPROVAL_TYPEHASH = keccak256(
+        "GuardianApproval(bytes32 requestId,bytes32 proofHash,address guardianId,uint256 timestamp)"
+    );
+
+    constructor(string memory name, string memory version, uint256 chainId, address verifyingContract) {
+        DOMAIN_SEPARATOR = keccak256(abi.encode(
+            keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+            keccak256(bytes(name)),
+            keccak256(bytes(version)),
+            chainId,
+            verifyingContract
+        ));
+    }
+
+    function verifyProofReceiptSigner(
+        bytes32 requestId,
+        bytes32 accountId,
+        bytes32 proofHash,
+        bytes32 proofNonce,
+        string memory circuitVersion,
+        uint256 timestamp,
+        string memory verifierId,
+        bytes memory signature
+    ) public view returns (address) {
+        bytes32 structHash = keccak256(abi.encode(
+            PROOF_RECEIPT_TYPEHASH,
+            requestId,
+            accountId,
+            proofHash,
+            proofNonce,
+            keccak256(bytes(circuitVersion)),
+            timestamp,
+            keccak256(bytes(verifierId))
+        ));
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR, structHash));
+        return recover(digest, signature);
+    }
+
+    function verifyGuardianApprovalSigner(
+        bytes32 requestId,
+        bytes32 proofHash,
+        address guardianId,
+        uint256 timestamp,
+        bytes memory signature
+    ) public view returns (address) {
+        bytes32 structHash = keccak256(abi.encode(
+            GUARDIAN_APPROVAL_TYPEHASH,
+            requestId,
+            proofHash,
+            guardianId,
+            timestamp
+        ));
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR, structHash));
+        return recover(digest, signature);
+    }
+
+    function recover(bytes32 digest, bytes memory sig) internal pure returns (address) {
+        require(sig.length == 65, "invalid sig length");
+        bytes32 r; bytes32 s; uint8 v;
+        assembly {
+            r := mload(add(sig, 32))
+            s := mload(add(sig, 64))
+            v := byte(0, mload(add(sig, 96)))
+        }
+        if (v < 27) v += 27;
+        require(v == 27 || v == 28, "invalid v");
+        return ecrecover(digest, v, r, s);
+    }
+}
+```
+
+**On‑chain acceptance rules**  
+- Recover signer address and check `isVerifier[signer]` or `isGuardian[signer]`.  
+- Ensure `proofHash` is not already mapped to a different `requestId`.  
+- Enforce `timestamp` freshness window (e.g., within 1 hour) and `circuitVersion` compatibility.
+
+---
+
+### Replay Protection and Security Considerations
+
+**Single‑use proofHash mapping**  
+- Maintain `mapping(bytes32 => bytes32) proofHashToRequestId` and reject if `proofHashToRequestId[proofHash] != 0 && != requestId`.
+
+**Timestamp and nonce**  
+- Require `timestamp` in receipt and `proofNonce` in typed data. Reject receipts older than a configured window.
+
+**Domain binding**  
+- Use `verifyingContract` and `chainId` in domain separator to prevent cross‑chain or cross‑contract replay.
+
+**Verifier set and threshold**  
+- Option A: accept receipts only from a registered verifier set and require at least `k` independent receipts.  
+- Option B: accept a single receipt but require additional guardian approvals on‑chain.
+
+**Canonical encoding enforcement**  
+- Implement identical encoding in off‑chain signer libraries and on‑chain verification to avoid malleability.
+
+---
+
+### Test Vectors and Integration Checklist
+
+**Synthetic example ProofReceipt values**  
+- `requestId`: `0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`  
+- `accountId`: `0x1111111111111111111111111111111111111111111111111111111111111111`  
+- `proofHash`: `0x6f1e2b3c4d5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c`  
+- `proofNonce`: `0x5555555555555555555555555555555555555555555555555555555555555555`  
+- `circuitVersion`: `"v1.0"`  
+- `timestamp`: `1670000000`  
+- `verifierId`: `"verifier-01"`
+
+**Integration checklist**  
+- Implement off‑chain signer that builds EIP‑712 typed data exactly as schema.  
+- Implement canonical serialization helpers and unit tests reproducing the digest.  
+- Deploy contract with domain parameters matching signer configuration.  
+- Add `proofHashToRequestId` mapping and timestamp freshness checks.  
+- Add unit tests: valid signature accepted, invalid signature rejected, reused `proofHash` rejected, expired timestamp rejected.  
+- Add integration test: full flow `initiate` → `mock verifier sign` → `submitProof` → `guardian sign` → `guardianApprove` → `finalize`.
+
+---

@@ -22,18 +22,23 @@ import type {
 import type {
   ContestInput,
   DashboardStats,
+  Eip712Schema,
   ErrorResponse,
   EventList,
   GuardianApprovalInput,
   HealthStatus,
   ListEventsParams,
   ListRecoveryRequestsParams,
+  OnchainStatus,
+  PrometheusSnapshot,
   ProofReceipt,
   ProofSubmitInput,
   ProofVerifyInput,
   RecoveryInitInput,
   RecoveryRequest,
-  RecoveryRequestList
+  RecoveryRequestList,
+  ZkEvmPipeline,
+  ZkEvmStatus
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -881,6 +886,391 @@ export function useGetStats<TData = Awaited<ReturnType<typeof getStats>>, TError
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetStatsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetZkEvmStatusUrl = () => {
+
+
+
+
+  return `/api/zkevm/status`
+}
+
+/**
+ * @summary Get zkEVM pipeline status
+ */
+export const getZkEvmStatus = async ( options?: RequestInit): Promise<ZkEvmStatus> => {
+
+  return customFetch<ZkEvmStatus>(getGetZkEvmStatusUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetZkEvmStatusQueryKey = () => {
+    return [
+    `/api/zkevm/status`
+    ] as const;
+    }
+
+
+export const getGetZkEvmStatusQueryOptions = <TData = Awaited<ReturnType<typeof getZkEvmStatus>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getZkEvmStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetZkEvmStatusQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getZkEvmStatus>>> = ({ signal }) => getZkEvmStatus({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getZkEvmStatus>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetZkEvmStatusQueryResult = NonNullable<Awaited<ReturnType<typeof getZkEvmStatus>>>
+export type GetZkEvmStatusQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get zkEVM pipeline status
+ */
+
+export function useGetZkEvmStatus<TData = Awaited<ReturnType<typeof getZkEvmStatus>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getZkEvmStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetZkEvmStatusQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetZkEvmPipelineUrl = () => {
+
+
+
+
+  return `/api/zkevm/pipeline`
+}
+
+/**
+ * @summary Get zkEVM proof pipeline stages
+ */
+export const getZkEvmPipeline = async ( options?: RequestInit): Promise<ZkEvmPipeline> => {
+
+  return customFetch<ZkEvmPipeline>(getGetZkEvmPipelineUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetZkEvmPipelineQueryKey = () => {
+    return [
+    `/api/zkevm/pipeline`
+    ] as const;
+    }
+
+
+export const getGetZkEvmPipelineQueryOptions = <TData = Awaited<ReturnType<typeof getZkEvmPipeline>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getZkEvmPipeline>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetZkEvmPipelineQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getZkEvmPipeline>>> = ({ signal }) => getZkEvmPipeline({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getZkEvmPipeline>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetZkEvmPipelineQueryResult = NonNullable<Awaited<ReturnType<typeof getZkEvmPipeline>>>
+export type GetZkEvmPipelineQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get zkEVM proof pipeline stages
+ */
+
+export function useGetZkEvmPipeline<TData = Awaited<ReturnType<typeof getZkEvmPipeline>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getZkEvmPipeline>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetZkEvmPipelineQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetOnchainStatusUrl = () => {
+
+
+
+
+  return `/api/onchain/status`
+}
+
+/**
+ * @summary Get on-chain contract status for Anchor and EVM
+ */
+export const getOnchainStatus = async ( options?: RequestInit): Promise<OnchainStatus> => {
+
+  return customFetch<OnchainStatus>(getGetOnchainStatusUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetOnchainStatusQueryKey = () => {
+    return [
+    `/api/onchain/status`
+    ] as const;
+    }
+
+
+export const getGetOnchainStatusQueryOptions = <TData = Awaited<ReturnType<typeof getOnchainStatus>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOnchainStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetOnchainStatusQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getOnchainStatus>>> = ({ signal }) => getOnchainStatus({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getOnchainStatus>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetOnchainStatusQueryResult = NonNullable<Awaited<ReturnType<typeof getOnchainStatus>>>
+export type GetOnchainStatusQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get on-chain contract status for Anchor and EVM
+ */
+
+export function useGetOnchainStatus<TData = Awaited<ReturnType<typeof getOnchainStatus>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOnchainStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetOnchainStatusQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetEip712SchemaUrl = () => {
+
+
+
+
+  return `/api/onchain/eip712`
+}
+
+/**
+ * @summary Get EIP-712 typed data schemas and domain parameters
+ */
+export const getEip712Schema = async ( options?: RequestInit): Promise<Eip712Schema> => {
+
+  return customFetch<Eip712Schema>(getGetEip712SchemaUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetEip712SchemaQueryKey = () => {
+    return [
+    `/api/onchain/eip712`
+    ] as const;
+    }
+
+
+export const getGetEip712SchemaQueryOptions = <TData = Awaited<ReturnType<typeof getEip712Schema>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getEip712Schema>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetEip712SchemaQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getEip712Schema>>> = ({ signal }) => getEip712Schema({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getEip712Schema>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetEip712SchemaQueryResult = NonNullable<Awaited<ReturnType<typeof getEip712Schema>>>
+export type GetEip712SchemaQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get EIP-712 typed data schemas and domain parameters
+ */
+
+export function useGetEip712Schema<TData = Awaited<ReturnType<typeof getEip712Schema>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getEip712Schema>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetEip712SchemaQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetPrometheusMetricsUrl = () => {
+
+
+
+
+  return `/api/prometheus/metrics`
+}
+
+/**
+ * @summary Get Prometheus metrics snapshot (JSON format)
+ */
+export const getPrometheusMetrics = async ( options?: RequestInit): Promise<PrometheusSnapshot> => {
+
+  return customFetch<PrometheusSnapshot>(getGetPrometheusMetricsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetPrometheusMetricsQueryKey = () => {
+    return [
+    `/api/prometheus/metrics`
+    ] as const;
+    }
+
+
+export const getGetPrometheusMetricsQueryOptions = <TData = Awaited<ReturnType<typeof getPrometheusMetrics>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPrometheusMetrics>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetPrometheusMetricsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getPrometheusMetrics>>> = ({ signal }) => getPrometheusMetrics({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getPrometheusMetrics>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetPrometheusMetricsQueryResult = NonNullable<Awaited<ReturnType<typeof getPrometheusMetrics>>>
+export type GetPrometheusMetricsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get Prometheus metrics snapshot (JSON format)
+ */
+
+export function useGetPrometheusMetrics<TData = Awaited<ReturnType<typeof getPrometheusMetrics>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPrometheusMetrics>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetPrometheusMetricsQueryOptions(options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

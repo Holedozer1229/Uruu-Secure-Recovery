@@ -1,0 +1,409 @@
+### Overview
+
+Below are **audit‑ready on‑chain skeletons** for implementing the URUU recovery protocol on two ecosystems: **Anchor (Solana, Rust)** and **Hardhat (EVM, Solidity)**. Each skeleton is intentionally **non‑executable** and annotated for auditors and implementers: it defines account/state layouts, instruction signatures, event emissions, canonical checks, and clear integration points for **ProofReceipt** verification and **GuardianApproval** handling. Cryptographic heavy lifting (ZK verification, MPC/TSS, HSMs) is left as explicit integration points — do not embed secrets or prover internals on‑chain.
+
+Use these skeletons as a starting point for formal implementation, security review, and formal verification.
+
+---
+
+### Anchor Program Skeleton (Rust)
+
+#### Key design notes
+- **Minimal on‑chain storage**: store compact commitments, hashes, signatures, and counters only.  
+- **Verifier receipts**: accept signed `ProofReceipt` objects from registered verifiers; verify verifier signatures on‑chain. For cost reasons, prefer off‑chain verification and on‑chain signature checks.  
+- **Guardian approvals**: store guardian pubkeys and a bitmap or small list; require quorum.  
+- **Timelock**: enforce `T_lock` before finalization.  
+- **Events**: emit events for every state transition for off‑chain monitors.
+
+#### Anchor IDL / Program skeleton
+
+```rust
+// Anchor program skeleton (non-executable, annotated)
+// File: programs/uruu-recovery/src/lib.rs
+
+use anchor_lang::prelude::*;
+use anchor_lang::solana_program::hash::Hash;
+
+declare_id!("URUU111111111111111111111111111111111111111");
+
+#[program]
+pub mod uruu_recovery {
+    use super::*;
+
+    pub fn register_guardian(ctx: Context<RegisterGuardian>, guardian_pubkey: Pubkey, metadata: Vec<u8>) -> Result<()> {
+        let registry = &mut ctx.accounts.guardian_registry;
+        // Add guardian to registry (check duplicates)
+        // Emit GuardianRegistered event
+        Ok(())
+    }
+
+    pub fn initiate_recovery(ctx: Context<InitiateRecovery>, new_key_commit: [u8;32], policy_commit: [u8;32], requested_timelock: i64) -> Result<()> {
+        let req = &mut ctx.accounts.recovery_request;
+        let clock = Clock::get()?;
+        req.initiator = *ctx.accounts.initiator.key;
+        req.new_key_commit = new_key_commit;
+        req.policy_commit = policy_commit;
+        req.timestamp = clock.unix_timestamp;
+        req.state = RequestState::Initiated as u8;
+        // compute request_id off-chain or on-chain as hash(initiator||new_key_commit||timestamp)
+        // emit RecoveryInitiated event
+        Ok(())
+    }
+
+    pub fn submit_proof_receipt(ctx: Context<SubmitProofReceipt>, proof_receipt: ProofReceipt) -> Result<()> {
+        let req = &mut ctx.accounts.recovery_request;
+        // 1. Check state == Initiated
+        // 2. Verify proof_receipt.request_id == req.request_id
+        // 3. Verify verifier signature using registered verifier pubkey(s)
+        // 4. Ensure proof_hash not used for different request
+        // 5. Set req.proof_hash = proof_receipt.proof_hash; req.state = ProofSubmitted
+        // emit ProofSubmitted event
+        Ok(())
+    }
+
+    pub fn guardian_approve(ctx: Context<GuardianApprove>, approval: GuardianApproval) -> Result<()> {
+        let req = &mut ctx.accounts.recovery_request;
+        // 1. Verify guardian is registered
+        // 2. Verify guardian signature over canonical bytes (requestId||proofHash||timestamp)
+        // 3. Prevent duplicate approvals
+        // 4. Increment approval count; if >= quorum set state = Approved
+        // emit GuardianApproved event
+        Ok(())
+    }
+
+    pub fn submit_contest(ctx: Context<SubmitContest>, contest_hash: [u8;32]) -> Result<()> {
+        let req = &mut ctx.accounts.recovery_request;
+        // Append contest reference; set state = Contested
+        // emit RecoveryContested event
+        Ok(())
+    }
+
+    pub fn finalize_recovery(ctx: Context<FinalizeRecovery>) -> Result<()> {
+        let req = &mut ctx.accounts.recovery_request;
+        let clock = Clock::get()?;
+        // 1. Ensure state == Approved
+        // 2. Ensure now >= req.timestamp + T_lock
+        // 3. Ensure no unresolved contests
+        // 4. Bind new_key_commit to account mapping (implementation dependent)
+        // 5. Set state = Finalized
+        // emit RecoveryFinalized event
+        Ok(())
+    }
+
+    pub fn abort_recovery(ctx: Context<AbortRecovery>) -> Result<()> {
+        let req = &mut ctx.accounts.recovery_request;
+        // Set state = Aborted, emit RecoveryAborted
+        Ok(())
+    }
+}
+
+// Account and type definitions
+
+#[account]
+pub struct RecoveryRequest {
+    pub initiator: Pubkey,
+    pub new_key_commit: [u8;32],
+    pub policy_commit: [u8;32],
+    pub request_id: [u8;32],
+    pub proof_hash: Option<[u8;32]>,
+    pub approvals_count: u8,
+    pub state: u8,
+    pub timestamp: i64,
+    // compact guardian bitmap or vector reference (off-chain storage recommended)
+    // reserved padding
+    pub _reserved: [u8; 64],
+}
+
+#[account]
+pub struct GuardianRegistry {
+    pub guardians: Vec<Pubkey>, // consider compressed storage or off-chain registry
+    pub quorum: u8,
+    pub admin: Pubkey,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+pub struct ProofReceipt {
+    pub request_id: [u8;32],
+    pub account_id: [u8;32],
+    pub proof_hash: [u8;32],
+    pub proof_nonce: [u8;32],
+    pub circuit_version: [u8;8],
+    pub timestamp: i64,
+    pub verifier_id: [u8;16],
+    pub verifier_sig: Vec<u8>, // signature bytes
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+pub struct GuardianApproval {
+    pub guardian_id: Pubkey,
+    pub request_id: [u8;32],
+    pub proof_hash: [u8;32],
+    pub timestamp: i64,
+    pub guardian_sig: Vec<u8>,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq)]
+pub enum RequestState {
+    Initiated = 0,
+    ProofSubmitted = 1,
+    Approved = 2,
+    Contested = 3,
+    Finalized = 4,
+    Aborted = 5,
+}
+
+// Context structs for each instruction (accounts)
+#[derive(Accounts)]
+pub struct RegisterGuardian<'info> {
+    #[account(mut, has_one = admin)]
+    pub guardian_registry: Account<'info, GuardianRegistry>,
+    pub admin: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct InitiateRecovery<'info> {
+    #[account(init, payer = initiator, space = 8 + std::mem::size_of::<RecoveryRequest>())]
+    pub recovery_request: Account<'info, RecoveryRequest>,
+    #[account(mut)]
+    pub initiator: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct SubmitProofReceipt<'info> {
+    #[account(mut)]
+    pub recovery_request: Account<'info, RecoveryRequest>,
+    pub submitter: Signer<'info>,
+    // optionally include verifier registry account for on-chain verifier pubkeys
+}
+
+#[derive(Accounts)]
+pub struct GuardianApprove<'info> {
+    #[account(mut)]
+    pub recovery_request: Account<'info, RecoveryRequest>,
+    pub guardian: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct SubmitContest<'info> {
+    #[account(mut)]
+    pub recovery_request: Account<'info, RecoveryRequest>,
+    pub submitter: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct FinalizeRecovery<'info> {
+    #[account(mut)]
+    pub recovery_request: Account<'info, RecoveryRequest>,
+    // governance or anyone after timelock may call
+}
+```
+
+**Anchor implementation notes**
+- **Verifier pubkeys**: store a small on‑chain registry of verifier pubkeys or accept off‑chain verifier receipts signed by a known set. On Solana, verifying Ed25519 signatures on‑chain is supported via syscalls; use them carefully to avoid high compute cost.  
+- **Guardian storage**: for large guardian sets, store a Merkle root on‑chain and accept Merkle proofs for approvals to reduce storage.  
+- **RequestId generation**: compute deterministically off‑chain and store on‑chain; include in ProofReceipt checks.  
+- **Event emission**: use `emit!` macros for `RecoveryInitiated`, `ProofSubmitted`, `GuardianApproved`, `RecoveryContested`, `RecoveryFinalized`, `RecoveryAborted`.
+
+---
+
+### Hardhat Solidity Skeleton (EVM)
+
+#### Key design notes
+- Solidity contract stores compact commitments and verifies signatures (EIP‑191/EIP‑712 or raw `ecrecover`).  
+- For verifier receipts, prefer EIP‑712 typed data signatures to avoid ambiguity.  
+- Use `mapping(bytes32 => Request)` for requests and `mapping(address => bool)` for guardian registry.  
+- Timelock enforced via block timestamps.  
+- Keep heavy ZK verification off‑chain; accept signed receipts on‑chain.
+
+#### Solidity contract skeleton
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+/// @title URUU Recovery Skeleton
+/// @notice Non-executable skeleton for audit and integration planning.
+
+contract URUURecovery {
+    enum RequestState { INITIATED, PROOF_SUBMITTED, APPROVED, CONTESTED, FINALIZED, ABORTED }
+
+    struct Request {
+        address initiator;
+        bytes32 newKeyCommit;
+        bytes32 policyCommit;
+        bytes32 requestId;
+        bytes32 proofHash;
+        uint8 approvalsCount;
+        RequestState state;
+        uint256 timestamp;
+        mapping(address => bool) approvals;
+    }
+
+    // Guardian registry
+    mapping(address => bool) public isGuardian;
+    uint8 public quorum;
+    address public admin;
+
+    // Verifier registry
+    mapping(address => bool) public isVerifier;
+
+    // Requests mapping
+    mapping(bytes32 => Request) private requests;
+
+    // Events
+    event RecoveryInitiated(bytes32 indexed requestId, address indexed initiator, bytes32 newKeyCommit, uint256 timestamp);
+    event ProofSubmitted(bytes32 indexed requestId, bytes32 proofHash);
+    event GuardianApproved(bytes32 indexed requestId, address indexed guardian);
+    event RecoveryContested(bytes32 indexed requestId, bytes32 contestHash);
+    event RecoveryFinalized(bytes32 indexed requestId, bytes32 newKeyCommit);
+    event RecoveryAborted(bytes32 indexed requestId);
+
+    constructor(address[] memory initialGuardians, uint8 initialQuorum, address[] memory initialVerifiers) {
+        admin = msg.sender;
+        quorum = initialQuorum;
+        for (uint i = 0; i < initialGuardians.length; i++) {
+            isGuardian[initialGuardians[i]] = true;
+        }
+        for (uint i = 0; i < initialVerifiers.length; i++) {
+            isVerifier[initialVerifiers[i]] = true;
+        }
+    }
+
+    function registerGuardian(address guardian) external {
+        require(msg.sender == admin, "only admin");
+        isGuardian[guardian] = true;
+    }
+
+    function initiateRecovery(bytes32 newKeyCommit, bytes32 policyCommit) external returns (bytes32) {
+        uint256 ts = block.timestamp;
+        bytes32 requestId = keccak256(abi.encodePacked(msg.sender, newKeyCommit, ts));
+        Request storage r = requests[requestId];
+        r.initiator = msg.sender;
+        r.newKeyCommit = newKeyCommit;
+        r.policyCommit = policyCommit;
+        r.requestId = requestId;
+        r.state = RequestState.INITIATED;
+        r.timestamp = ts;
+        emit RecoveryInitiated(requestId, msg.sender, newKeyCommit, ts);
+        return requestId;
+    }
+
+    // ProofReceipt structure is passed as parameters; verifier signs EIP-712 typed data off-chain
+    function submitProofReceipt(bytes32 requestId, bytes32 accountId, bytes32 proofHash, bytes32 proofNonce, bytes calldata verifierSig) external {
+        Request storage r = requests[requestId];
+        require(r.state == RequestState.INITIATED, "invalid state");
+        // Recover verifier address from signature over canonical SignInput
+        bytes32 signInputHash = keccak256(abi.encodePacked(requestId, accountId, proofHash, proofNonce));
+        address signer = recoverSigner(signInputHash, verifierSig);
+        require(isVerifier[signer], "invalid verifier");
+        // Ensure proofHash not used for different request (scan or store mapping proofHash->requestId)
+        r.proofHash = proofHash;
+        r.state = RequestState.PROOF_SUBMITTED;
+        emit ProofSubmitted(requestId, proofHash);
+    }
+
+    function guardianApprove(bytes32 requestId, bytes32 proofHash, bytes calldata guardianSig) external {
+        Request storage r = requests[requestId];
+        require(isGuardian[msg.sender], "not guardian");
+        require(r.proofHash == proofHash, "proofHash mismatch");
+        // Optionally verify guardianSig if guardian signs canonical approval bytes
+        require(!r.approvals[msg.sender], "duplicate");
+        r.approvals[msg.sender] = true;
+        r.approvalsCount += 1;
+        emit GuardianApproved(requestId, msg.sender);
+        if (r.approvalsCount >= quorum) {
+            r.state = RequestState.APPROVED;
+        }
+    }
+
+    function submitContest(bytes32 requestId, bytes32 contestHash) external {
+        Request storage r = requests[requestId];
+        require(r.state == RequestState.INITIATED || r.state == RequestState.PROOF_SUBMITTED || r.state == RequestState.APPROVED, "invalid state");
+        r.state = RequestState.CONTESTED;
+        emit RecoveryContested(requestId, contestHash);
+    }
+
+    function finalizeRecovery(bytes32 requestId) external {
+        Request storage r = requests[requestId];
+        require(r.state == RequestState.APPROVED, "not approved");
+        uint256 T_lock = 1 hours; // configurable
+        require(block.timestamp >= r.timestamp + T_lock, "timelock");
+        // Check unresolved contests (off-chain adjudication or on-chain evidence)
+        r.state = RequestState.FINALIZED;
+        // Bind newKeyCommit to account mapping (implementation dependent)
+        emit RecoveryFinalized(requestId, r.newKeyCommit);
+    }
+
+    // Utility: recover signer from signature (placeholder)
+    function recoverSigner(bytes32 hash, bytes memory sig) internal pure returns (address) {
+        // Implement ECDSA recover (ecrecover) over prefixed hash or EIP-712 typed data
+        return address(0);
+    }
+}
+```
+
+**Hardhat implementation notes**
+- Use **EIP‑712** typed data for verifier receipts and guardian approvals to avoid ambiguity and replay.  
+- Maintain a `mapping(bytes32 => bytes32)` from `proofHash` to `requestId` to prevent reuse across requests.  
+- For large guardian sets, consider Merkle root + Merkle proofs to reduce gas.  
+- Use `access control` (OpenZeppelin `Ownable`/`AccessControl`) for admin operations.  
+- Add `pause` and `emergencyFreeze` functions guarded by multisig for incident response.
+
+---
+
+### Security Considerations (on‑chain)
+
+- **Signature verification**: implement robust signature verification (EIP‑712 for EVM; Ed25519 syscalls or on‑chain verification for Solana). Verify canonical serialization exactly.  
+- **Replay protection**: enforce `proofHash` single‑use mapping and include `RequestId` and `ProofNonce` in signed inputs.  
+- **Timelock tuning**: choose `T_lock` per risk profile; allow policy overrides via governance with timelock.  
+- **Guardian collusion**: set quorum > tolerated collusion threshold; diversify guardians (HSMs, custodians, individuals).  
+- **Verifier compromise**: require multiple independent verifiers or threshold of verifier signatures.  
+- **Gas and compute**: avoid on‑chain ZK verification unless proofs are succinct and verified cheaply; prefer off‑chain verification + signed receipts.  
+- **Event logging**: emit events for every state change; do not store large proofs on‑chain — store hashes only.
+
+---
+
+### Testing and Audit Checklist
+
+- **Unit tests**
+  - State transitions for all instruction paths (happy path and failure modes).  
+  - Signature verification tests for valid and invalid receipts/approvals.  
+  - Replay tests: submitting same `proofHash` for different `requestId` must fail.  
+  - Timelock enforcement tests.
+
+- **Integration tests**
+  - Full flow: `initiate` → `submitProof` → multiple `guardianApprove` → `finalize`.  
+  - Contest flow: submit contest during timelock and assert abort behavior.  
+  - Edge cases: partial approvals, duplicate approvals, revoked guardians.
+
+- **Adversarial tests**
+  - Simulate attacker with leaked leaf keys attempting to race recovery.  
+  - Simulate guardian collusion up to threshold and verify protocol resilience.  
+  - Simulate verifier compromise and test multi‑verifier requirement.
+
+- **Formal verification**
+  - Verify invariants: only finalized when quorum and timelock satisfied; proofHash uniqueness; no unauthorized state transitions.
+
+- **Operational tests**
+  - Load test for verifier receipt submission and guardian approval throughput.  
+  - Gas cost analysis for EVM; compute unit analysis for Solana.
+
+---
+
+### Deployment and Integration Notes
+
+- **On Solana (Anchor)**: deploy program after audits; use PDAs for `RecoveryRequest` accounts; consider rent exemptions and account size limits. Use off‑chain indexer to monitor events.  
+- **On EVM (Hardhat)**: deploy with `Ownable` admin and multisig for governance; publish ABI and EIP‑712 domain for verifier/guardian signatures.  
+- **Verifier services**: run multiple independent verifiers; publish their public keys on‑chain or via a signed registry.  
+- **Guardian onboarding**: implement off‑chain KYC/contracting and on‑chain registration with timelock for rotation.  
+- **Monitoring**: build off‑chain watchers to detect `RecoveryInitiated` events and notify exchanges/custodians for freeze actions.
+
+---
+
+If you want, I will now produce one of the following next, audit‑ready artifacts:
+- **(1)** Full Anchor Rust skeleton file set (annotated) ready for your engineers to complete.  
+- **(2)** Full Hardhat Solidity contract files plus deployment script and unit test templates.  
+- **(3)** EIP‑712 typed data schemas and canonical serialization helpers for verifier receipts and guardian approvals.  
+
+Pick **1**, **2**, or **3** and I’ll generate the requested artifact immediately.

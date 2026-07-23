@@ -13,6 +13,9 @@ import GuardianDashboard from '@/pages/GuardianDashboard';
 import EventMonitor from '@/pages/EventMonitor';
 import AdminPanel from '@/pages/AdminPanel';
 import ResearchInterface from '@/pages/ResearchInterface';
+import ZkEvmMonitor from '@/pages/ZkEvmMonitor';
+import OnchainHub from '@/pages/OnchainHub';
+import PrometheusMetrics from '@/pages/PrometheusMetrics';
 
 const queryClient = new QueryClient();
 
@@ -26,6 +29,9 @@ function Router() {
         <Route path="/recovery/:requestId" component={RecoveryDetail} />
         <Route path="/guardian" component={GuardianDashboard} />
         <Route path="/events" component={EventMonitor} />
+        <Route path="/zkevm" component={ZkEvmMonitor} />
+        <Route path="/onchain" component={OnchainHub} />
+        <Route path="/prometheus" component={PrometheusMetrics} />
         <Route path="/admin" component={AdminPanel} />
         <Route path="/research" component={ResearchInterface} />
         <Route component={NotFound} />

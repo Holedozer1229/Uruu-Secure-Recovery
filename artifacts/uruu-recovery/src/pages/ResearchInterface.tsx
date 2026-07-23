@@ -1,120 +1,82 @@
 import React from 'react';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
-import { Badge, Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@/components/ui/core';
-import diagram from '@assets/spooky_action_in_math_1784813752682.png';
-import { Microscope, AlertTriangle } from 'lucide-react';
+import { Link } from 'wouter';
+import { Microscope, Beaker, Network } from 'lucide-react';
+import TerminalLine from '../components/TerminalLine';
 
 export default function ResearchInterface() {
   return (
-    <div className="space-y-8 max-w-5xl mx-auto pb-12">
-      <div className="flex flex-col md:flex-row justify-between items-start gap-4 border-b border-border pb-6">
-        <div className="flex items-center gap-3">
-          <div className="p-3 bg-purple-500/10 text-purple-400 rounded-xl shadow-[0_0_15px_rgba(168,85,247,0.2)]">
-            <Microscope className="w-8 h-8" />
-          </div>
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight text-white">Quantum Circuit Interface Spec</h1>
-            <p className="text-muted-foreground mt-1 font-mono text-sm">URUU Protocol v0.9.4-alpha</p>
-          </div>
-        </div>
-        <Badge variant="destructive" className="flex items-center gap-1 uppercase tracking-widest text-[10px] px-3 py-1 shadow-[0_0_15px_rgba(239,68,68,0.3)] border-destructive">
-          <AlertTriangle className="w-3 h-3" />
-          Research Only — Not Executable
-        </Badge>
+    <div className="space-y-8 pb-12 max-w-5xl mx-auto">
+      <div className="border-b border-accent/50 pb-6 mb-8 text-center space-y-4">
+        <h1 className="text-4xl font-bold tracking-[0.3em] text-accent text-glow-amber font-mono uppercase">
+          Quantum Spec Lab
+        </h1>
+        <p className="text-accent/60 font-mono tracking-widest text-sm max-w-2xl mx-auto">
+          RESTRICTED AREA. EXPERIMENTAL ZK-CIRCUITS AND ADVANCED CRYPTOGRAPHIC THEOREMS.
+        </p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <Card className="border-purple-500/20 bg-purple-500/5 col-span-1 lg:col-span-2 overflow-hidden relative">
-          <div className="absolute top-0 right-0 w-64 h-64 bg-purple-500/10 blur-[100px] pointer-events-none" />
-          <div className="flex flex-col md:flex-row items-center gap-8 p-8">
-            <div className="w-full md:w-1/2">
-              <img src={diagram} alt="Spooky Action in Mathematics" className="w-full rounded-lg border border-purple-500/30 mix-blend-screen shadow-[0_0_30px_rgba(168,85,247,0.15)]" />
+      {/* Main Diagram Area */}
+      <div className="matrix-card border-accent/30 bg-black p-8 relative overflow-hidden group">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(255,191,0,0.05)_0%,transparent_60%)] pointer-events-none" />
+        
+        <div className="flex items-center justify-between mb-8 relative z-10">
+          <div className="font-mono text-accent/80 tracking-widest flex items-center gap-2">
+            <Microscope className="w-5 h-5" /> SPOOKY ACTION DIAGRAM
+          </div>
+          <div className="text-xs border border-accent/50 text-accent px-2 py-1 font-mono animate-pulse">
+            LIVE SIMULATION
+          </div>
+        </div>
+
+        <div className="h-64 border border-accent/20 bg-accent/5 flex items-center justify-center relative z-10 overflow-hidden">
+          {/* Mock abstract geometric representation of ZK circuits */}
+          <div className="absolute w-48 h-48 border border-accent/40 rounded-full animate-[spin_10s_linear_infinite]" />
+          <div className="absolute w-32 h-32 border-2 border-accent/60 rounded-full border-dashed animate-[spin_7s_linear_infinite_reverse]" />
+          <div className="absolute w-16 h-16 bg-accent/20 rounded-full shadow-[0_0_30px_rgba(255,191,0,0.8)]" />
+          
+          {/* Connections */}
+          <svg className="absolute inset-0 w-full h-full opacity-30">
+             <line x1="0" y1="0" x2="50%" y2="50%" stroke="var(--color-accent)" strokeWidth="1" />
+             <line x1="100%" y1="0" x2="50%" y2="50%" stroke="var(--color-accent)" strokeWidth="1" />
+             <line x1="0" y1="100%" x2="50%" y2="50%" stroke="var(--color-accent)" strokeWidth="1" />
+             <line x1="100%" y1="100%" x2="50%" y2="50%" stroke="var(--color-accent)" strokeWidth="1" />
+          </svg>
+
+          <div className="absolute bottom-4 left-4 text-xs font-mono text-accent/50">
+            ENTANGLEMENT RATIO: 0.9984
+          </div>
+        </div>
+      </div>
+
+      {/* Experimental Modules */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="matrix-card border-accent/30 p-6 space-y-4">
+          <h3 className="font-mono text-accent tracking-widest flex items-center gap-2 border-b border-accent/20 pb-2">
+            <Beaker className="w-4 h-4" /> NOVEL PROVERS
+          </h3>
+          <div className="space-y-2 text-sm text-accent/70 font-mono">
+            <TerminalLine prompt="TST" text="Compiling Plonky3 backend..." variant="gold" />
+            <TerminalLine prompt="SYS" text="Warning: Circuit complexity exceeds safe limits." variant="red" />
+            <TerminalLine prompt="OPT" text="Optimizing constraint polynomials..." variant="gold" />
+            <div className="cursor-blink mt-2" />
+          </div>
+        </div>
+
+        <div className="matrix-card border-accent/30 p-6 space-y-4">
+          <h3 className="font-mono text-accent tracking-widest flex items-center gap-2 border-b border-accent/20 pb-2">
+            <Network className="w-4 h-4" /> CROSS-CHAIN BRIDGES
+          </h3>
+          <div className="space-y-4 font-mono text-sm text-accent/70">
+            <div className="flex justify-between items-center bg-accent/5 p-2 border border-accent/20">
+               <span>EVM --&gt; SOLANA</span>
+               <span className="text-secondary neon-flicker text-xs">UNSTABLE</span>
             </div>
-            <div className="w-full md:w-1/2 space-y-4 relative z-10">
-              <h3 className="text-2xl font-bold text-purple-300">Spooky Action in Mathematics</h3>
-              <p className="text-purple-200/70 leading-relaxed text-sm">
-                The URUU protocol leverages entanglement-like properties in highly structured ZK proof circuits to achieve O(1) state resolution over N disparate oracle networks. The mathematical fixed point enforces consensus without communication.
-              </p>
-              <div className="bg-black/50 p-5 rounded-md border border-purple-500/30 font-mono text-center text-xl text-purple-200 shadow-inner">
-                P(s<sub>i+1</sub>) = f(P(s<sub>i+1</sub>)) <br/>
-                <span className="text-xs text-purple-400/50 mt-2 block">with h* = 0.869, asym = 0.502</span>
-              </div>
+            <div className="flex justify-between items-center bg-accent/5 p-2 border border-accent/20">
+               <span>EVM --&gt; STARKNET</span>
+               <span className="text-accent text-xs">TESTING</span>
             </div>
           </div>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-primary text-sm uppercase tracking-wider">Measurement API Spec</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4 font-mono text-xs text-muted-foreground">
-            <p className="font-sans text-sm">The verifier acts as a quantum measurement apparatus, collapsing the superimposed proof states into a single boolean validation receipt.</p>
-            <div className="bg-black/50 p-4 rounded border border-border overflow-x-auto">
-              <pre className="text-green-400 leading-loose">
-{`interface IOracleMeasurement {
-  function collapse(
-    bytes32 stateRoot,
-    bytes calldata zkProof
-  ) external returns (bool isValid);
-}`}
-              </pre>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-primary text-sm uppercase tracking-wider">Canonical Serialization</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4 font-mono text-xs text-muted-foreground">
-            <p className="font-sans text-sm">All inputs must be strictly ordered and padded to 32-byte boundaries before commitment generation.</p>
-            <ul className="list-none space-y-2">
-              <li className="flex gap-4"><span className="text-primary w-24">accountId</span> <span>pad-right</span></li>
-              <li className="flex gap-4"><span className="text-primary w-24">requestId</span> <span>hex, exactly 64 chars</span></li>
-              <li className="flex gap-4"><span className="text-primary w-24">newKeyCommit</span> <span>32 bytes</span></li>
-              <li className="flex gap-4"><span className="text-primary w-24">policyCommit</span> <span>32 bytes</span></li>
-              <li className="flex gap-4"><span className="text-primary w-24">proofNonce</span> <span>uint256 BE</span></li>
-            </ul>
-          </CardContent>
-        </Card>
-
-        <Card className="col-span-1 lg:col-span-2">
-          <CardHeader>
-            <CardTitle className="text-sm uppercase text-muted-foreground tracking-wider">Synthetic Test Vectors</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Account ID</TableHead>
-                  <TableHead>Request ID</TableHead>
-                  <TableHead>New Key Commit</TableHead>
-                  <TableHead>Proof Nonce</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody className="font-mono text-xs">
-                <TableRow>
-                  <TableCell>acc_alpha_01</TableCell>
-                  <TableCell className="text-primary truncate max-w-[100px]">req_8f72c1...</TableCell>
-                  <TableCell className="text-muted-foreground truncate max-w-[100px]">0x4b2a...</TableCell>
-                  <TableCell>1459023</TableCell>
-                </TableRow>
-                <TableRow>
-                  <TableCell>acc_beta_09</TableCell>
-                  <TableCell className="text-primary truncate max-w-[100px]">req_3e91a4...</TableCell>
-                  <TableCell className="text-muted-foreground truncate max-w-[100px]">0x9c3f...</TableCell>
-                  <TableCell>8841294</TableCell>
-                </TableRow>
-                <TableRow>
-                  <TableCell>acc_gamma_42</TableCell>
-                  <TableCell className="text-primary truncate max-w-[100px]">req_1d55b8...</TableCell>
-                  <TableCell className="text-muted-foreground truncate max-w-[100px]">0x1a7e...</TableCell>
-                  <TableCell>3301928</TableCell>
-                </TableRow>
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+        </div>
       </div>
     </div>
   );

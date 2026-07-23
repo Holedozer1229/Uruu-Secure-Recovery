@@ -1,259 +1,194 @@
-import React, { useEffect, useState } from 'react';
-import { useRoute, Link } from 'wouter';
-import { 
-  useGetRecoveryRequest, 
-  getGetRecoveryRequestQueryKey,
-  useFinalizeRecovery,
-  useContestRecovery,
-  useListEvents
-} from '@workspace/api-client-react';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
-import { Button, Input, Badge, Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@/components/ui/core';
-import { HashChip } from '@/components/ui/chip';
-import { formatDate } from '@/lib/utils';
-import { Clock, ShieldCheck, AlertTriangle, CheckCircle2, History } from 'lucide-react';
+import React from 'react';
+import { useGetRecoveryRequest, useContestRecovery, getGetRecoveryRequestQueryKey } from '@workspace/api-client-react';
+import { useLocation, useParams } from 'wouter';
+import { ArrowLeft, AlertTriangle, ShieldCheck, Clock, ShieldX } from 'lucide-react';
+import TerminalLine from '../components/TerminalLine';
+import HashChip from '../components/HashChip';
+import StatusBadge from '../components/StatusBadge';
+import { useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 
 export default function RecoveryDetail() {
-  const [, params] = useRoute('/recovery/:requestId');
-  const requestId = params?.requestId || '';
+  const { requestId } = useParams();
+  const [, setLocation] = useLocation();
+  const queryClient = useQueryClient();
 
-  const { data: req, isLoading, refetch } = useGetRecoveryRequest(requestId, {
-    query: { enabled: !!requestId, queryKey: getGetRecoveryRequestQueryKey(requestId) }
-  });
+  const { data: request, isLoading, error } = useGetRecoveryRequest(requestId || '');
+  const contestMutation = useContestRecovery();
 
-  const { data: eventsData } = useListEvents({ requestId, limit: 50 }, {
-    query: { enabled: !!requestId }
-  });
+  if (isLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[50vh] space-y-4">
+        <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin shadow-[0_0_15px_rgba(0,255,65,0.5)]" />
+        <TerminalLine text="Fetching cryptographic state from the grid..." />
+      </div>
+    );
+  }
 
-  const finalize = useFinalizeRecovery();
-  const contest = useContestRecovery();
+  if (error || !request) {
+    return (
+      <div className="space-y-6">
+        <button onClick={() => setLocation('/')} className="flex items-center gap-2 text-primary hover:text-glow font-mono transition-all">
+          <ArrowLeft className="w-4 h-4" /> [ RETURN TO BASE ]
+        </button>
+        <div className="matrix-card p-8 border-secondary flex flex-col items-center justify-center gap-4 text-center">
+          <ShieldX className="w-16 h-16 text-secondary neon-flicker" />
+          <h2 className="text-2xl font-bold text-secondary text-glow-red tracking-widest">SIGNAL LOST</h2>
+          <TerminalLine prompt="ERR" text="Failed to retrieve recovery record. Entity may not exist." variant="red" />
+        </div>
+      </div>
+    );
+  }
 
-  const [contestHash, setContestHash] = useState('');
+  const isContested = request.status === 'CONTESTED';
+  const cardBorderClass = isContested ? 'border-secondary shadow-[0_0_20px_rgba(255,0,50,0.2)]' : 'border-primary/50';
 
-  // Auto-refresh slightly if timelock is ticking
-  useEffect(() => {
-    if (req?.status === 'APPROVED' && req.timelockExpiresAt) {
-      const interval = setInterval(() => refetch(), 10000);
-      return () => clearInterval(interval);
+  const handleContest = async () => {
+    if (!requestId) return;
+    const contestHash = prompt('Enter override hash to contest this recovery:');
+    if (!contestHash || contestHash.length < 10) {
+      toast.error('Invalid contest hash provided.');
+      return;
     }
-  }, [req?.status, req?.timelockExpiresAt, refetch]);
 
-  if (isLoading) return <div className="text-center py-20 font-mono text-primary animate-pulse">LOADING REQUEST DATA...</div>;
-  if (!req) return <div className="text-center py-20 text-destructive">REQUEST NOT FOUND</div>;
-
-  const statusColors: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
-    INITIATED: "outline",
-    PROOF_SUBMITTED: "secondary",
-    APPROVED: "default",
-    CONTESTED: "destructive",
-    FINALIZED: "default"
+    toast.promise(
+      contestMutation.mutateAsync({
+        requestId,
+        data: { contestHash }
+      }),
+      {
+        loading: 'Broadcasting contest signal...',
+        success: () => {
+          queryClient.invalidateQueries({ queryKey: getGetRecoveryRequestQueryKey(requestId) });
+          return 'Recovery successfully contested.';
+        },
+        error: 'Contest broadcast failed.'
+      }
+    );
   };
 
-  const isTimelockExpired = req.timelockExpiresAt ? new Date(req.timelockExpiresAt).getTime() < Date.now() : false;
-
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-border pb-6">
-        <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold tracking-tight">Recovery Operation</h1>
-            <Badge variant={statusColors[req.status] || "outline"} className="px-3 py-1 font-mono text-[10px]">
-              {req.status}
-            </Badge>
-          </div>
-          <div className="text-muted-foreground mt-1 flex items-center gap-2 text-sm">
-            ID: <HashChip hash={req.requestId} />
-          </div>
-        </div>
-
-        {req.status === 'INITIATED' && (
-          <Link href={`/recovery/${requestId}/submit-proof`}>
-            <Button>Generate & Submit ZK Proof</Button>
-          </Link>
-        )}
-        {req.status === 'APPROVED' && (
-          <Button 
-            onClick={() => finalize.mutate({ requestId }, { onSuccess: () => refetch() })}
-            disabled={!isTimelockExpired || finalize.isPending}
-            className={isTimelockExpired ? "shadow-[0_0_20px_rgba(0,229,255,0.4)]" : "opacity-50"}
-          >
-            {finalize.isPending ? 'Finalizing...' : (isTimelockExpired ? 'Finalize Recovery' : 'Timelock Active')}
-          </Button>
-        )}
+    <div className="space-y-8 pb-12 max-w-5xl mx-auto">
+      <div className="flex items-center justify-between">
+        <button onClick={() => window.history.back()} className="flex items-center gap-2 text-primary/70 hover:text-primary hover:text-glow font-mono transition-all text-sm tracking-wider">
+          <ArrowLeft className="w-4 h-4" /> [ ABORT VIEW ]
+        </button>
+        <StatusBadge status={request.status} className="scale-125 origin-right" />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm text-muted-foreground uppercase tracking-wider">Cryptographic Commitments</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <div className="text-xs text-muted-foreground uppercase tracking-wider mb-2">New Key Commit</div>
-                  <HashChip hash={req.newKeyCommit} className="text-sm w-full py-2 justify-center bg-background border-dashed" />
-                </div>
-                <div className="space-y-1">
-                  <div className="text-xs text-muted-foreground uppercase tracking-wider mb-2">Policy Commit</div>
-                  <HashChip hash={req.policyCommit} className="text-sm w-full py-2 justify-center bg-background border-dashed" />
-                </div>
-              </div>
-              <div className="pt-4 mt-2 border-t border-border flex justify-between items-center text-sm font-mono text-muted-foreground">
-                <div>Created: {formatDate(req.createdAt)}</div>
-                <div>Timelock: {req.requestedTimelock}s</div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {req.proofReceipt && (
-            <Card className="border-primary/20">
-              <CardHeader>
-                <CardTitle className="text-sm text-primary uppercase tracking-wider flex items-center gap-2">
-                  <ShieldCheck className="w-4 h-4" /> Proof Receipt Verified
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="font-mono text-xs space-y-3 bg-black/40 p-4 rounded-md mx-6 mb-6 border border-primary/10">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
-                  <span className="text-muted-foreground">Proof Hash:</span> 
-                  <HashChip hash={req.proofReceipt.proofHash} className="bg-transparent" />
-                </div>
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
-                  <span className="text-muted-foreground">Public Inputs:</span> 
-                  <HashChip hash={req.proofReceipt.publicInputsHash} className="bg-transparent" />
-                </div>
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
-                  <span className="text-muted-foreground">Verifier Sig:</span> 
-                  <HashChip hash={req.proofReceipt.verifierSig} className="bg-transparent" />
-                </div>
-                <div className="flex justify-between pt-2 border-t border-primary/10 mt-2">
-                  <span className="text-muted-foreground">Timestamp:</span> {formatDate(req.proofReceipt.timestamp)}
-                </div>
-              </CardContent>
-            </Card>
+      <div className={`matrix-card p-6 md:p-10 transition-all duration-500 ${cardBorderClass}`}>
+        {/* Status Header */}
+        <div className="border-b border-primary/20 pb-8 mb-8 text-center space-y-4">
+          <div className="font-mono text-primary/50 tracking-widest text-sm">TARGET ENTITY</div>
+          <div className="text-3xl md:text-5xl font-mono text-white tracking-wider break-all text-glow">
+            {request.requestId}
+          </div>
+          {isContested && (
+            <div className="inline-flex items-center gap-3 bg-secondary/20 px-6 py-2 border border-secondary mt-4 neon-flicker">
+              <AlertTriangle className="w-6 h-6 text-secondary" />
+              <span className="text-secondary font-bold tracking-widest">PROTOCOL OVERRIDDEN: CONTESTED</span>
+            </div>
           )}
-
-          {req.status === 'PROOF_SUBMITTED' && (
-            <Card className="border-destructive/30 bg-destructive/5">
-              <CardHeader>
-                <CardTitle className="text-sm text-destructive uppercase tracking-wider flex items-center gap-2">
-                  <AlertTriangle className="w-4 h-4" /> Contest Operation
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <form 
-                  className="flex gap-3"
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    contest.mutate({ requestId, data: { contestHash } }, {
-                      onSuccess: () => refetch()
-                    });
-                  }}
-                >
-                  <Input 
-                    placeholder="Contest Proof Hash (0x...)" 
-                    value={contestHash}
-                    onChange={e => setContestHash(e.target.value)}
-                    required
-                    className="border-destructive/30 focus-visible:ring-destructive bg-background"
-                  />
-                  <Button type="submit" variant="destructive" disabled={contest.isPending}>Contest</Button>
-                </form>
-              </CardContent>
-            </Card>
-          )}
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm text-muted-foreground uppercase tracking-wider flex items-center gap-2">
-                <History className="w-4 h-4" /> Operation Timeline
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Time</TableHead>
-                    <TableHead>Event</TableHead>
-                    <TableHead>Details</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {eventsData?.items.map(ev => (
-                    <TableRow key={ev.id}>
-                      <TableCell className="font-mono text-[10px] whitespace-nowrap text-muted-foreground">{formatDate(ev.timestamp)}</TableCell>
-                      <TableCell><Badge variant="outline" className="text-[10px] font-mono">{ev.eventType}</Badge></TableCell>
-                      <TableCell className="font-mono text-[10px] text-muted-foreground truncate max-w-[200px]">
-                        {ev.dataJson}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                  {!eventsData?.items.length && (
-                    <TableRow><TableCell colSpan={3} className="text-center text-muted-foreground py-6">No events found.</TableCell></TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
         </div>
 
-        <div className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm text-muted-foreground uppercase tracking-wider">Guardian Quorum</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="flex items-end justify-between">
-                <div className="space-y-1">
-                  <div className="text-5xl font-bold font-mono text-primary">{req.approvalCount} <span className="text-2xl text-muted-foreground">/ {req.quorum}</span></div>
-                  <div className="text-xs text-muted-foreground uppercase tracking-wider mt-2">Approvals</div>
-                </div>
-                {req.approvalCount >= req.quorum && <CheckCircle2 className="w-10 h-10 text-primary drop-shadow-[0_0_10px_rgba(0,229,255,0.5)]" />}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
+          {/* Data Columns */}
+          <div className="space-y-8 font-mono">
+            <div className="space-y-2">
+              <div className="text-primary/50 tracking-widest text-xs">[ NEW KEY COMMITMENT ]</div>
+              <HashChip hash={request.newKeyCommit} showFull className="w-full justify-between py-2 text-sm" />
+            </div>
+            <div className="space-y-2">
+              <div className="text-primary/50 tracking-widest text-xs">[ POLICY COMMITMENT ]</div>
+              <HashChip hash={request.policyCommit} showFull className="w-full justify-between py-2 text-sm" />
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <div className="text-primary/50 tracking-widest text-xs">[ CREATED ]</div>
+                <div className="text-sm">{new Date(request.createdAt).toLocaleString()}</div>
               </div>
-              
-              <div className="space-y-2 pt-4 border-t border-border">
-                {req.guardianApprovals?.map((g, i) => (
-                  <div key={i} className="flex justify-between items-center p-3 rounded bg-background/50 border border-border/50 text-sm">
-                    <span className="font-mono font-medium text-xs text-muted-foreground">{g.guardianId}</span>
-                    <HashChip hash={g.signature} className="text-[10px] py-0.5" />
-                  </div>
-                ))}
-                {(!req.guardianApprovals || req.guardianApprovals.length === 0) && (
-                  <div className="text-sm text-muted-foreground text-center py-4 font-mono">Awaiting signatures...</div>
+              <div className="space-y-1">
+                <div className="text-primary/50 tracking-widest text-xs">[ TIMELOCK ]</div>
+                <div className="text-sm flex items-center gap-2 text-accent">
+                  <Clock className="w-3 h-3" /> {request.requestedTimelock / 3600} HRS
+                </div>
+              </div>
+            </div>
+
+            {/* Proof Receipt */}
+            <div className="space-y-2 pt-4">
+              <div className="text-primary/50 tracking-widest text-xs flex items-center justify-between border-b border-primary/20 pb-2">
+                <span>[ ZERO-KNOWLEDGE PROOF ]</span>
+                {request.proofReceipt ? (
+                  <span className="text-primary text-glow flex items-center gap-1"><ShieldCheck className="w-3 h-3"/> VALIDATED</span>
+                ) : (
+                  <span className="text-muted-foreground flex items-center gap-1"><ShieldX className="w-3 h-3"/> PENDING</span>
                 )}
               </div>
-            </CardContent>
-          </Card>
-
-          {req.timelockExpiresAt && req.status === 'APPROVED' && (
-            <Card className="border-secondary/30 bg-secondary/5 relative overflow-hidden">
-              <div className="absolute top-0 right-0 p-4 opacity-10">
-                <Clock className="w-24 h-24 text-secondary" />
-              </div>
-              <CardHeader>
-                <CardTitle className="text-sm text-secondary uppercase tracking-wider flex items-center gap-2">
-                  <Clock className="w-4 h-4" /> Timelock Enforced
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div>
-                    <div className="text-xs text-muted-foreground uppercase mb-1">Expires At</div>
-                    <div className="font-mono text-xl font-bold text-secondary">
-                      {formatDate(req.timelockExpiresAt)}
-                    </div>
-                  </div>
-                  <div>
-                    {isTimelockExpired ? (
-                      <Badge variant="default" className="bg-green-500/20 text-green-400 border-green-500/30">EXPIRED - READY TO FINALIZE</Badge>
-                    ) : (
-                      <Badge variant="secondary" className="animate-pulse">LOCK ACTIVE</Badge>
-                    )}
-                  </div>
+              {request.proofReceipt && (
+                <div className="bg-black/50 p-4 border border-primary/20 text-xs text-primary/80 break-all space-y-2 max-h-40 overflow-y-auto mt-2">
+                  <TerminalLine prompt="PHSH" text={request.proofReceipt.proofHash} />
+                  <TerminalLine prompt="PIPT" text={request.proofReceipt.publicInputsHash} />
+                  <TerminalLine prompt="VSIG" text={request.proofReceipt.verifierSig} />
                 </div>
-              </CardContent>
-            </Card>
-          )}
+              )}
+            </div>
+          </div>
+
+          {/* Timeline & Guardians */}
+          <div className="space-y-8">
+             <div className="space-y-4">
+              <div className="text-primary/50 tracking-widest text-xs font-mono border-b border-primary/20 pb-2">
+                [ GUARDIAN MULTISIG QUORUM: {request.approvalCount} / {request.quorum} ]
+              </div>
+              <div className="grid grid-cols-5 gap-2">
+                {Array.from({ length: request.quorum }).map((_, i) => (
+                  <div key={i} className={`h-12 border flex items-center justify-center transition-all ${
+                    i < request.approvalCount 
+                      ? 'border-primary bg-primary/20 text-primary shadow-[0_0_10px_rgba(0,255,65,0.3)]' 
+                      : 'border-muted-foreground/30 bg-muted/10 text-muted-foreground/30'
+                  }`}>
+                    <div className={`w-3 h-3 rounded-full ${i < request.approvalCount ? 'bg-primary' : 'bg-muted-foreground/30'}`} />
+                  </div>
+                ))}
+              </div>
+             </div>
+
+             <div className="matrix-card p-4 min-h-[200px] flex flex-col justify-end relative">
+               <div className="absolute top-2 left-4 text-xs font-mono text-primary/30 tracking-widest">SYSTEM_LOG</div>
+               <div className="space-y-2 pt-6">
+                 <TerminalLine prompt="SYS" text={`Recovery entity initialized.`} />
+                 {request.proofReceipt && <TerminalLine prompt="SYS" text="zkEVM proof accepted." variant="gold" />}
+                 {request.approvalCount > 0 && <TerminalLine prompt="SYS" text={`${request.approvalCount} guardian signatures aggregated.`} />}
+                 {request.status === 'APPROVED' && <TerminalLine prompt="SYS" text="Quorum reached. Timelock counting down." />}
+                 {isContested && <TerminalLine prompt="ERR" text="CONTEST HASH RECEIVED. ABORTING." variant="red" />}
+                 {request.status === 'FINALIZED' && <TerminalLine prompt="SYS" text="STATE FINALIZED ON CHAIN." />}
+                 <div className="cursor-blink h-4 mt-2" />
+               </div>
+             </div>
+
+             {/* Actions */}
+             <div className="pt-4 flex gap-4">
+               {request.status !== 'FINALIZED' && request.status !== 'CONTESTED' && (
+                 <button
+                   onClick={handleContest}
+                   disabled={contestMutation.isPending}
+                   className="flex-1 py-3 border border-secondary text-secondary font-mono tracking-widest font-bold hover:bg-secondary/10 hover:shadow-[0_0_15px_rgba(255,0,50,0.4)] transition-all disabled:opacity-50"
+                 >
+                   [ OVERRIDE // CONTEST ]
+                 </button>
+               )}
+               {request.status === 'INITIATED' && !request.proofReceipt && (
+                 <button
+                   onClick={() => setLocation(`/recovery/${requestId}/submit-proof`)}
+                   className="flex-1 py-3 border border-primary text-primary font-mono tracking-widest font-bold hover:bg-primary hover:text-black hover:shadow-[0_0_15px_rgba(0,255,65,0.6)] transition-all"
+                 >
+                   [ EXECUTE PROOF ]
+                 </button>
+               )}
+             </div>
+          </div>
         </div>
       </div>
     </div>

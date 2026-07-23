@@ -405,6 +405,103 @@ export const GetStatsResponse = zod.object({
 
 
 /**
+ * @summary Get zkEVM pipeline status
+ */
+export const GetZkEvmStatusResponse = zod.object({
+  "networkId": zod.string(),
+  "chainId": zod.number(),
+  "provingBackend": zod.string(),
+  "totalProofsGenerated": zod.number(),
+  "avgProvingTimeMs": zod.number(),
+  "queueDepth": zod.number(),
+  "verifierContractAddress": zod.string(),
+  "status": zod.enum(['online', 'degraded', 'offline']),
+  "uptime": zod.string()
+})
+
+
+/**
+ * @summary Get zkEVM proof pipeline stages
+ */
+export const GetZkEvmPipelineResponse = zod.object({
+  "phases": zod.array(zod.object({
+  "name": zod.string(),
+  "status": zod.enum(['idle', 'running', 'complete', 'error']),
+  "latencyMs": zod.number().nullable(),
+  "proofSize": zod.string().nullable(),
+  "gasEstimate": zod.number().nullable(),
+  "lastUpdated": zod.string().nullish()
+})),
+  "lastBlock": zod.number(),
+  "tps": zod.number(),
+  "gasUsed": zod.string(),
+  "proofAggregation": zod.string()
+})
+
+
+/**
+ * @summary Get on-chain contract status for Anchor and EVM
+ */
+export const GetOnchainStatusResponse = zod.object({
+  "evm": zod.object({
+  "chain": zod.string(),
+  "status": zod.enum(['live', 'testnet', 'skeleton']),
+  "address": zod.string(),
+  "guardianCount": zod.number(),
+  "quorum": zod.number(),
+  "totalRequests": zod.number(),
+  "lastBlock": zod.number().nullable()
+}),
+  "solana": zod.object({
+  "chain": zod.string(),
+  "status": zod.enum(['live', 'testnet', 'skeleton']),
+  "address": zod.string(),
+  "guardianCount": zod.number(),
+  "quorum": zod.number(),
+  "totalRequests": zod.number(),
+  "lastBlock": zod.number().nullable()
+}),
+  "lastSynced": zod.string()
+})
+
+
+/**
+ * @summary Get EIP-712 typed data schemas and domain parameters
+ */
+export const GetEip712SchemaResponse = zod.object({
+  "domainName": zod.string(),
+  "version": zod.string(),
+  "types": zod.array(zod.object({
+  "typeName": zod.string(),
+  "fields": zod.array(zod.object({
+  "name": zod.string(),
+  "type": zod.string()
+}))
+})),
+  "domainSeparatorFields": zod.array(zod.object({
+  "name": zod.string(),
+  "type": zod.string()
+})),
+  "integrationNotes": zod.array(zod.string())
+})
+
+
+/**
+ * @summary Get Prometheus metrics snapshot (JSON format)
+ */
+export const GetPrometheusMetricsResponse = zod.object({
+  "generatedAt": zod.string(),
+  "metrics": zod.array(zod.object({
+  "name": zod.string(),
+  "help": zod.string(),
+  "type": zod.string(),
+  "value": zod.number(),
+  "labels": zod.string()
+}))
+})
+
+
+/**
  * @summary List recovery requests pending guardian approval
  */
 export const ListPendingApprovalsResponse = zod.object({

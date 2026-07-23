@@ -1,0 +1,142 @@
+### Full Sweet16 Floquet Circuit
+
+Below is a complete, researcher‑grade depiction of the **Sweet16** circuit (14 data qubits + 2 ghost qubits = 16 total) showing one Floquet period (brickwork), repeated Floquet steps, a designed MPO pulse, ancilla/ghost entanglement at a stroboscopic time, projective measurement, and post‑selection. I give (1) an ASCII circuit diagram for one period plus the measurement step, (2) a compact legend, and (3) a runnable Qiskit‑style pseudocode snippet you can paste and adapt.
+
+---
+
+#### ASCII circuit diagram for one Floquet period plus measurement step
+
+```
+Time → 
+q15 ──■─────[ ]─────■─────[ ]───── ... ──■─────[ ]───────────────
+         \           \                \ 
+q14 ──[G]─┼─[U(0,1)]─┼─[U(2,3)]─ ... ──┼─[U(14,15)]─────────────
+           \           \                \
+q13 ───────┼───────────┼───────────────┼──────────────────────
+           |           |               |
+q12 ──[ ]──┼─[U(0,1)]─┼─[U(2,3)]─ ... ──┼─[U(14,15)]─────────────
+           |           |               |
+q11 ───────┼───────────┼───────────────┼──────────────────────
+           |           |               |
+q10 ──[ ]──┼─[U(0,1)]─┼─[U(2,3)]─ ... ──┼─[U(14,15)]─────────────
+           |           |               |
+ q9 ───────┼───────────┼───────────────┼──────────────────────
+           |           |               |
+ q8 ──[ ]──┼─[U(0,1)]─┼─[U(2,3)]─ ... ──┼─[U(14,15)]─────────────
+           |           |               |
+ q7 ───────┼───────────┼───────────────┼──────────────────────
+           |           |               |
+ q6 ──[ ]──┼─[U(0,1)]─┼─[U(2,3)]─ ... ──┼─[U(14,15)]─────────────
+           |           |               |
+ q5 ───────┼───────────┼───────────────┼──────────────────────
+           |           |               |
+ q4 ──[ ]──┼─[U(0,1)]─┼─[U(2,3)]─ ... ──┼─[U(14,15)]─────────────
+           |           |               |
+ q3 ───────┼───────────┼───────────────┼──────────────────────
+           |           |               |
+ q2 ──[ ]──┼─[U(0,1)]─┼─[U(2,3)]─ ... ──┼─[U(14,15)]─────────────
+           |           |               |
+ q1 ───────┼───────────┼───────────────┼──────────────────────
+           |           |               |
+ q0 ──[ ]──┼─[U(0,1)]─┼─[U(2,3)]─ ... ──┼─[U(14,15)]─────────────
+           |           |               |
+anc0 ──────┼───────────┼───────────────┼─────────●────────M─────
+           |           |               |         |
+anc1 ──────┼───────────┼───────────────┼─────────●────────M─────
+```
+
+**Notes on the ASCII diagram**
+- The block `[U(i,j)]` denotes a **two‑qubit gate** applied to qubits `i` and `j` in the brickwork pattern. In practice the brickwork alternates **even** pairs `(0,1),(2,3),...` and **odd** pairs `(1,2),(3,4),...` each Floquet step.
+- The vertical alignment shows the **brickwork layering**: even layer then odd layer per Floquet period.
+- `anc0` and `anc1` are the two **ghost/ancilla qubits** (positions chosen here as the top two lines for clarity). At the stroboscopic time \(t_m\) they are entangled with local data qubits (controlled gates shown as `●` connections) and then **measured** (`M`).
+- The `G` symbol near `q14` is a placeholder for a **designed MPO pulse** applied as a short sequence of brickwork layers (see pulse layers below). In practice the pulse is a short sequence of two‑site gates applied across the chain; it can be inserted at any chosen stroboscopic time.
+
+---
+
+#### Legend and conventions
+
+- **Qubit ordering**: lines labeled `q0`..`q15` are physical sites; choose mapping so data qubits occupy `q0..q13` and ghosts `q14,q15` (or any other placement).  
+- **Two‑qubit gate**: \(U(\theta,\phi)=\exp[-i(\theta\,X\!X+\phi\,Y\!Y)]\) used in the brickwork. At the **dual‑unitary** point \(\theta=\pi/4,\phi=0\) use that gate for baseline.  
+- **Brickwork**: one Floquet period = **even layer** (pairs (0,1),(2,3),...) followed by **odd layer** (pairs (1,2),(3,4),...). Repeat for \(t=0,1,\dots\).  
+- **Pulse MPO**: a short sequence of brickwork layers with tuned parameters (strength, phases, duration). Represented as several `[G]` blocks or a contiguous set of two‑site gates.  
+- **Ancilla entanglement**: implemented with controlled gates (e.g., CNOT or controlled‑phase) from chosen data qubits to ancillas at time \(t_m\). Immediately after, **projective measurement** of ancillas collapses the state into branches.  
+- **Post‑selection**: optional — keep only branches with desired ancilla outcomes.
+
+---
+
+#### Qiskit‑style pseudocode to construct the circuit
+
+```python
+# Pseudocode (Qiskit-like) to build one Floquet period, pulse, ancilla entanglement and measurement
+from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister
+
+n_data = 14
+n_ghost = 2
+n = n_data + n_ghost
+
+q = QuantumRegister(n, 'q')
+c = ClassicalRegister(n_ghost, 'c')  # record ancilla measurements
+circ = QuantumCircuit(q, c)
+
+# helper: two-qubit gate U(theta,phi) on qubits i,j
+def apply_U(circ, i, j, theta, phi):
+    # decompose U into native gates or use unitary if simulator supports it
+    U = expm(-1j*(theta * np.kron(X,X) + phi * np.kron(Y,Y)))
+    circ.unitary(U, [q[i], q[j]], label=f"U({i},{j})")
+
+# build one Floquet period
+theta, phi = np.pi/4, 0.0
+# even layer
+for i in range(0, n, 2):
+    j = (i+1) % n
+    apply_U(circ, i, j, theta, phi)
+# odd layer
+for i in range(1, n, 2):
+    j = (i+1) % n
+    apply_U(circ, i, j, theta, phi)
+
+# insert designed pulse (short sequence)
+pulse_strength = 0.18
+pulse_steps = 6
+for step in range(pulse_steps):
+    # apply small-angle U gates across brickwork
+    for i in range(0, n, 2):
+        j = (i+1) % n
+        apply_U(circ, i, j, pulse_strength, 0.0)
+    for i in range(1, n, 2):
+        j = (i+1) % n
+        apply_U(circ, i, j, pulse_strength, 0.0)
+
+# ancilla entanglement at t_m
+t_m = 10  # stroboscopic step where ancillas are entangled and measured
+# Example: entangle ancilla q[n-2] with data q0 and ancilla q[n-1] with data q2
+circ.cx(q[0], q[n-2])   # CNOT data->ancilla
+circ.cx(q[2], q[n-1])   # CNOT data->ancilla
+
+# measure ancillas
+circ.measure(q[n-2], c[0])
+circ.measure(q[n-1], c[1])
+
+# continue Floquet evolution if desired
+# (repeat even/odd layers or apply corrective pulses conditioned on measurement)
+```
+
+---
+
+#### Rendering tips and visualization
+- **Circuit drawing**: use Qiskit `QuantumCircuit.draw(output='mpl')` for a publication‑quality diagram. For 16 qubits the diagram is wide; rotate labels and increase figure size.  
+- **Layer visualization**: plot a timeline showing Floquet periods, pulse windows, and measurement time \(t_m\). Use color coding: blue for baseline Floquet gates, orange for pulse gates, red for ancilla entanglement/measurement.  
+- **MPO pulse depiction**: show pulse as a short block spanning several layers with annotated parameters (strength, steps, per‑layer phase).
+
+---
+
+#### Quick interpretation and usage notes
+- **Where to place ghosts**: put ghost qubits adjacent to the data qubits you want to probe to minimize entangling gate depth for ancilla coupling.  
+- **Pulse placement**: pulses can be inserted between Floquet periods or overlapped with a period; choose the stroboscopic alignment that best matches the eigenphase splitting \(\Delta\varepsilon\).  
+- **Post‑selection**: measuring ancillas collapses the global state; use post‑selection to prepare low‑entropy eigenbranches or apply feedback pulses conditioned on measurement outcomes.
+
+---
+
+If you want, I’ll now:
+- export a **vector SVG** of this circuit diagram styled for a paper figure, or
+- generate a **Qiskit notebook** that builds, simulates, and draws the full Sweet16 circuit with the pulse and measurement, and saves the PNGs for the figures.

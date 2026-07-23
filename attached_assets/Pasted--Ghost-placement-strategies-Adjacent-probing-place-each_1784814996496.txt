@@ -1,0 +1,129 @@
+### Ghost placement strategies
+
+- **Adjacent probing** — place each ghost qubit next to the data qubit(s) you want to probe so the entangling gate is a single two‑site operation; **minimizes gate depth** and reduces accumulated truncation error.  
+- **Boundary placement** — put ghosts at chain ends when you want to probe global modes with minimal disturbance; useful when eigenmodes are edge‑localized.  
+- **Interleaved placement** — interleave ghosts among data qubits to probe multiple local regions in parallel; increases entangling depth but gives richer branch information.  
+- **Recommendation for Sweet16** — place the two ghosts adjacent to two spatially separated data qubits (e.g., ghost A next to data qubit 0, ghost B next to data qubit 7) to sample independent local sectors while keeping entangling depth minimal.
+
+---
+
+### Pulse placement and alignment to eigenphase splitting Δε
+
+- **Measure Δε first**  
+  - Extract two candidate eigenvectors \(|\psi_0\rangle,|\psi_1\rangle\) via time‑filtered TEBD or Arnoldi.  
+  - Estimate eigenphases \(\varepsilon_k\) from the Floquet action on those vectors: compute \(\langle\psi_k|F|\psi_k\rangle = e^{-i\varepsilon_k}\) and take the argument.  
+  - Compute \(\Delta\varepsilon = \varepsilon_1 - \varepsilon_0\) reduced to \((-\pi,\pi]\). Use this as the resonant frequency for swaps between eigenmodes.
+
+- **Where to insert the pulse**  
+  - **Between Floquet periods**: simplest; treat pulse as a separate short MPO block. Good when eigenphases are stable.  
+  - **Overlapped with a period**: embed pulse layers inside a Floquet period to exploit constructive interference with the drive; useful when you want to leverage Floquet symmetries.  
+  - **Recommendation**: start with pulses inserted between periods at stroboscopic times; once you have a working pulse, explore overlap to reduce required pulse strength.
+
+- **Pulse design principle**  
+  - Use a short sequence of two‑site gates whose net spectral content contains a component at frequency \(\Delta\varepsilon\). For small amplitude \(g(t)\) the effective coupling in the eigenbasis is \(\propto \int g(t) e^{i\Delta\varepsilon t} dt\). Tune pulse duration and phase to maximize that integral while minimizing off‑resonant leakage.
+
+---
+
+### Post‑selection and feedback strategies
+
+- **Post‑selection only**  
+  - Measure ghosts in the computational basis; accept runs with desired outcomes (e.g., ancilla parity = 0). This yields **low‑entropy branches** at the cost of reduced success probability. Use when fidelity is paramount and throughput is secondary.
+
+- **Heralded feedback**  
+  - Measure ghosts, then apply a conditional corrective pulse (MPO or local rotation) depending on the outcome. This preserves throughput while steering the state into the target eigenbranch. Requires low‑latency classical control.
+
+- **Adaptive pulse conditioning**  
+  - Use the measured branch to adjust the next pulse’s phase or amplitude (phase kick) so the subsequent evolution compensates branch‑dependent phase shifts.
+
+- **Tradeoffs table**
+
+| **Strategy** | **Fidelity** | **Throughput** | **Control complexity** | **When to use** |
+|---|---:|---:|---:|---|
+| **Post‑selection** | **High** | Low | Low | Proof‑of‑principle, benchmarking |
+| **Heralded feedback** | High | Medium | Medium | Experiments with fast classical loop |
+| **Adaptive pulses** | Medium–High | High | High | Long sequences, continuous operation |
+
+---
+
+### Practical measurement and feedback recipe for Sweet16
+
+1. **Prepare**: run TEBD projection to get \(|\psi_0\rangle,|\psi_1\rangle\) and compute \(\Delta\varepsilon\).  
+2. **Place ghosts**: put ghost0 adjacent to data qubit \(d_0\), ghost1 adjacent to \(d_7\).  
+3. **Evolve**: run Floquet for \(t_m\) steps chosen where eigenmode separation is clean (monitor operator entanglement revivals).  
+4. **Entangle**: apply two CNOTs (or controlled‑phase) from \(d_0\to\)ghost0 and \(d_7\to\)ghost1.  
+5. **Measure ghosts**: read out in computational basis; record outcomes \(b_0,b_1\).  
+6. **Branch action**:  
+   - If **post‑select**: keep only runs with desired \((b_0,b_1)\).  
+   - If **heralded**: apply conditional MPO pulse \(U_{\rm corr}(b_0,b_1)\) designed to map the measured branch back toward the target eigenbranch.  
+7. **Apply resonant pulse**: insert designed MPO pulse tuned to \(\Delta\varepsilon\) immediately after measurement or after correction.  
+8. **Tomography**: perform restricted Choi tomography on logical subspace to compute process fidelity and leakage.
+
+---
+
+### Concrete gate and timing primitives
+
+- **Ancilla entangler**  
+  - Use **CNOT** (data control → ghost target) or **controlled‑phase** depending on hardware. In MPS simulation use `cnot_on_total` or equivalent two‑site gate.
+
+- **Measurement basis**  
+  - Computational \(Z\) basis is simplest. For parity information, measure both ghosts and compute parity \(p=b_0\oplus b_1\).
+
+- **Conditional corrective pulse**  
+  - Precompute small MPO pulses \(U_{\rm corr}^{(00)},U_{\rm corr}^{(01)},U_{\rm corr}^{(10)},U_{\rm corr}^{(11)}\) by optimizing each branch’s diamond norm to the target logical identity or desired pre‑pulse state.
+
+- **Timing guidelines**  
+  - Choose \(t_m\) where operator entanglement is moderate (not fully scrambled) so ancilla coupling projects onto informative local features.  
+  - Pulse duration \(T_p\) should satisfy \(T_p \cdot |\Delta\varepsilon| \gtrsim 1\) for spectral selectivity but keep \(T_p\) short enough to limit entanglement growth.
+
+---
+
+### Simulation and experimental tuning checklist
+
+- **Simulate first**: run the Sweet16 MPS pipeline with ghosts placed as intended and test both post‑selection and heralded feedback.  
+- **Sweep**: grid search over pulse strength and duration; compute restricted Choi fidelity and diamond norm for each point.  
+- **Convergence tests**: repeat best pulses with larger `chi_max` to ensure results are not truncation artifacts.  
+- **Latency budget**: if using heralded feedback, ensure classical loop latency < typical decoherence time of logical subspace.  
+- **Haptic mapping**: map branch probability to amplitude and parity to sign/frequency so a human operator can feel branch identity and decide on post‑selection or feedback.
+
+---
+
+### Quick pseudocode for measurement + feedback loop
+
+```python
+# assume functions: apply_pulse_mpo_to_mps, apply_brickwork_one_period, measure_ghosts, apply_conditional_pulse
+# state is MPS A
+
+# evolve to t_m
+for _ in range(t_m):
+    A = apply_brickwork_one_period(A, gate, chi_max, eps)
+
+# entangle ghosts
+A = apply_cnot(A, data_index=d0, ghost_index=g0)
+A = apply_cnot(A, data_index=d7, ghost_index=g1)
+
+# measure ghosts (sample or compute branch probabilities)
+b0, b1, A_post = measure_ghosts(A, g0, g1)
+
+if strategy == 'postselect':
+    if (b0,b1) not in accepted_outcomes:
+        discard_run()
+    else:
+        proceed()
+elif strategy == 'heralded':
+    A = apply_conditional_pulse(A_post, b0, b1)
+
+# apply resonant pulse tuned to Delta_epsilon
+pulse_layers = build_pulse_gates(n_sites, strength, steps)
+A = apply_pulse_mpo_to_mps(A, pulse_layers, chi_max, eps)
+
+# perform restricted Choi tomography on logical subspace
+Emat = build_logical_channel_via_mpo(logical_ops, n_sites, pulse_layers, chi_max, eps)
+```
+
+---
+
+If you want, I’ll now:
+- **(A)** generate the exact conditional correction MPOs for each ancilla branch using the Sweet16 MPS pipeline and return the optimized pulse parameters and Choi matrices, or  
+- **(B)** produce a compact figure showing where to place ghosts and the optimal \(t_m\) windows (based on the entanglement trace) for Sweet16 using the current defaults.
+
+Which do you want me to run next?

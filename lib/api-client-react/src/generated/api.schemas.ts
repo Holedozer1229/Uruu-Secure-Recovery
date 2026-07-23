@@ -131,6 +131,115 @@ export interface StatusCount {
   count: number;
 }
 
+export type ZkEvmCircuitPhaseStatus = typeof ZkEvmCircuitPhaseStatus[keyof typeof ZkEvmCircuitPhaseStatus];
+
+
+export const ZkEvmCircuitPhaseStatus = {
+  idle: 'idle',
+  running: 'running',
+  complete: 'complete',
+  error: 'error',
+} as const;
+
+export interface ZkEvmCircuitPhase {
+  name: string;
+  status: ZkEvmCircuitPhaseStatus;
+  /** @nullable */
+  latencyMs: number | null;
+  /** @nullable */
+  proofSize: string | null;
+  /** @nullable */
+  gasEstimate: number | null;
+  /** @nullable */
+  lastUpdated?: string | null;
+}
+
+export type ZkEvmStatusStatus = typeof ZkEvmStatusStatus[keyof typeof ZkEvmStatusStatus];
+
+
+export const ZkEvmStatusStatus = {
+  online: 'online',
+  degraded: 'degraded',
+  offline: 'offline',
+} as const;
+
+export interface ZkEvmStatus {
+  networkId: string;
+  chainId: number;
+  provingBackend: string;
+  totalProofsGenerated: number;
+  avgProvingTimeMs: number;
+  queueDepth: number;
+  verifierContractAddress: string;
+  status: ZkEvmStatusStatus;
+  uptime: string;
+}
+
+export interface ZkEvmPipeline {
+  phases: ZkEvmCircuitPhase[];
+  lastBlock: number;
+  tps: number;
+  gasUsed: string;
+  proofAggregation: string;
+}
+
+export type OnchainContractInfoStatus = typeof OnchainContractInfoStatus[keyof typeof OnchainContractInfoStatus];
+
+
+export const OnchainContractInfoStatus = {
+  live: 'live',
+  testnet: 'testnet',
+  skeleton: 'skeleton',
+} as const;
+
+export interface OnchainContractInfo {
+  chain: string;
+  status: OnchainContractInfoStatus;
+  address: string;
+  guardianCount: number;
+  quorum: number;
+  totalRequests: number;
+  /** @nullable */
+  lastBlock: number | null;
+}
+
+export interface OnchainStatus {
+  evm: OnchainContractInfo;
+  solana: OnchainContractInfo;
+  lastSynced: string;
+}
+
+export interface Eip712Field {
+  name: string;
+  type: string;
+}
+
+export interface Eip712TypeDef {
+  typeName: string;
+  fields: Eip712Field[];
+}
+
+export interface Eip712Schema {
+  domainName: string;
+  version: string;
+  types: Eip712TypeDef[];
+  domainSeparatorFields: Eip712Field[];
+  integrationNotes: string[];
+}
+
+export interface PrometheusMetricSample {
+  name: string;
+  help: string;
+  type: string;
+  value: number;
+  labels: string;
+}
+
+export interface PrometheusSnapshot {
+  generatedAt: string;
+  metrics: PrometheusMetricSample[];
+}
+
 export interface DashboardStats {
   totalRequests: number;
   byStatus: StatusCount[];

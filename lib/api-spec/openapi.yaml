@@ -310,6 +310,71 @@ paths:
               schema:
                 $ref: "#/components/schemas/DashboardStats"
 
+  /zkevm/status:
+    get:
+      operationId: getZkEvmStatus
+      tags: [zkevm]
+      summary: Get zkEVM pipeline status
+      responses:
+        "200":
+          description: zkEVM pipeline status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ZkEvmStatus"
+
+  /zkevm/pipeline:
+    get:
+      operationId: getZkEvmPipeline
+      tags: [zkevm]
+      summary: Get zkEVM proof pipeline stages
+      responses:
+        "200":
+          description: zkEVM pipeline stages
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ZkEvmPipeline"
+
+  /onchain/status:
+    get:
+      operationId: getOnchainStatus
+      tags: [onchain]
+      summary: Get on-chain contract status for Anchor and EVM
+      responses:
+        "200":
+          description: On-chain contract status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OnchainStatus"
+
+  /onchain/eip712:
+    get:
+      operationId: getEip712Schema
+      tags: [onchain]
+      summary: Get EIP-712 typed data schemas and domain parameters
+      responses:
+        "200":
+          description: EIP-712 schemas
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Eip712Schema"
+
+  /prometheus/metrics:
+    get:
+      operationId: getPrometheusMetrics
+      tags: [stats]
+      summary: Get Prometheus metrics snapshot (JSON format)
+      responses:
+        "200":
+          description: Prometheus metrics snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PrometheusSnapshot"
+
   /guardian/pending:
     get:
       operationId: listPendingApprovals
@@ -522,6 +587,163 @@ components:
           type: string
         count:
           type: integer
+
+    ZkEvmCircuitPhase:
+      type: object
+      required: [name, status, latencyMs, proofSize, gasEstimate]
+      properties:
+        name:
+          type: string
+        status:
+          type: string
+          enum: [idle, running, complete, error]
+        latencyMs:
+          type: ["number", "null"]
+        proofSize:
+          type: ["string", "null"]
+        gasEstimate:
+          type: ["number", "null"]
+        lastUpdated:
+          type: ["string", "null"]
+
+    ZkEvmStatus:
+      type: object
+      required: [networkId, chainId, provingBackend, totalProofsGenerated, avgProvingTimeMs, queueDepth, verifierContractAddress, status, uptime]
+      properties:
+        networkId:
+          type: string
+        chainId:
+          type: integer
+        provingBackend:
+          type: string
+        totalProofsGenerated:
+          type: integer
+        avgProvingTimeMs:
+          type: number
+        queueDepth:
+          type: integer
+        verifierContractAddress:
+          type: string
+        status:
+          type: string
+          enum: [online, degraded, offline]
+        uptime:
+          type: string
+
+    ZkEvmPipeline:
+      type: object
+      required: [phases, lastBlock, tps, gasUsed, proofAggregation]
+      properties:
+        phases:
+          type: array
+          items:
+            $ref: "#/components/schemas/ZkEvmCircuitPhase"
+        lastBlock:
+          type: integer
+        tps:
+          type: number
+        gasUsed:
+          type: string
+        proofAggregation:
+          type: string
+
+    OnchainContractInfo:
+      type: object
+      required: [chain, status, address, guardianCount, quorum, totalRequests, lastBlock]
+      properties:
+        chain:
+          type: string
+        status:
+          type: string
+          enum: [live, testnet, skeleton]
+        address:
+          type: string
+        guardianCount:
+          type: integer
+        quorum:
+          type: integer
+        totalRequests:
+          type: integer
+        lastBlock:
+          type: ["integer", "null"]
+
+    OnchainStatus:
+      type: object
+      required: [evm, solana, lastSynced]
+      properties:
+        evm:
+          $ref: "#/components/schemas/OnchainContractInfo"
+        solana:
+          $ref: "#/components/schemas/OnchainContractInfo"
+        lastSynced:
+          type: string
+
+    Eip712Field:
+      type: object
+      required: [name, type]
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+
+    Eip712TypeDef:
+      type: object
+      required: [typeName, fields]
+      properties:
+        typeName:
+          type: string
+        fields:
+          type: array
+          items:
+            $ref: "#/components/schemas/Eip712Field"
+
+    Eip712Schema:
+      type: object
+      required: [domainName, version, types, domainSeparatorFields, integrationNotes]
+      properties:
+        domainName:
+          type: string
+        version:
+          type: string
+        types:
+          type: array
+          items:
+            $ref: "#/components/schemas/Eip712TypeDef"
+        domainSeparatorFields:
+          type: array
+          items:
+            $ref: "#/components/schemas/Eip712Field"
+        integrationNotes:
+          type: array
+          items:
+            type: string
+
+    PrometheusMetricSample:
+      type: object
+      required: [name, help, type, value, labels]
+      properties:
+        name:
+          type: string
+        help:
+          type: string
+        type:
+          type: string
+        value:
+          type: number
+        labels:
+          type: string
+
+    PrometheusSnapshot:
+      type: object
+      required: [generatedAt, metrics]
+      properties:
+        generatedAt:
+          type: string
+        metrics:
+          type: array
+          items:
+            $ref: "#/components/schemas/PrometheusMetricSample"
 
     DashboardStats:
       type: object
