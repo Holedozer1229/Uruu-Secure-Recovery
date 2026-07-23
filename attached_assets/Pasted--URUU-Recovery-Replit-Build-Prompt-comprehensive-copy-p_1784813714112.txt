@@ -1,0 +1,148 @@
+### URUU‑Recovery Replit Build Prompt (comprehensive, copy‑paste ready)
+
+**Goal (one line)**  
+Build a production‑grade **URUU‑Recovery** web service and demo site that implements a defensive, privacy‑preserving recovery flow: web UI + API backend + verifier service + guardian dashboard + mock on‑chain contract stubs + ZK proof integration points and a research‑only URUU quantum‑circuit interface (non‑actionable). Deliver a runnable Replit project with tests, synthetic test vectors, and deployment scripts.
+
+---
+
+### 1) Project summary and constraints
+- **Primary objective:** implement a secure, auditable recovery orchestration service that demonstrates the full URUU flow end‑to‑end using **synthetic data** only. Do **not** include any code or instructions that enable wallet compromise, key extraction, or exploit techniques. The quantum circuit component is **research‑only** and must be an interface/spec (no executable quantum code that could be used to attack wallets).
+- **Deliverables:** full repo with frontend (React/Next.js), backend API (Node/Express or Fastify), verifier microservice (Node), guardian dashboard, mock on‑chain contract stubs (Solana/Anchor or Ethereum/Hardhat stubs), ZK integration hooks (circom/snarkjs or placeholder), canonical serialization utilities, synthetic test vectors, unit/integration tests, README, and a one‑click Replit run configuration.
+- **Security posture:** follow secure defaults (HTTPS, env secrets, input validation, signature verification stubs, rate limits). All cryptographic operations must use standard libraries; where heavy crypto is required (ZK proving, MPC), provide integration points and mock implementations for the demo.
+
+---
+
+### 2) Tech stack and architecture (recommended)
+- **Frontend:** Next.js (React) + Tailwind CSS; pages: Home, Initiate Recovery, Submit Proof, Guardian Dashboard, Monitor (events), Admin.
+- **Backend API:** Node.js + Fastify (or Express) with TypeScript. Endpoints for recovery lifecycle, proof receipt submission, guardian approvals, contests, and finalization.
+- **Verifier service:** separate Node service that accepts `proofBlob` + `publicInputs`, returns signed `ProofReceipt` (mock verification for demo). Use Ed25519 for receipts (libsodium or tweetnacl).
+- **On‑chain stubs:** smart‑contract interface layer (TypeScript) that simulates contract state machine (RecoveryRequest) and emits events. Provide optional Anchor/Hardhat skeletons (non‑deployed) for auditors.
+- **ZK integration:** provide a **circuit interface module** and a mock prover/verifier pipeline. Use `snarkjs`/`circom` placeholders or a simple JSON proof simulator for demo. Include the **circuit public input test vectors** (synthetic) and canonical serialization utilities.
+- **Quantum circuit interface (research‑only):** a spec file `quantum_circuit_interface.md` describing the URUU quantum circuit inputs/outputs, measurement interface, and research API (no runnable quantum code).
+- **Storage & messaging:** in‑memory DB for demo (Redis optional), event log (append‑only JSONL), and WebSocket for real‑time events.
+- **Auth & keys:** simple API key auth for services; guardians and verifiers use Ed25519 keypairs stored in env for demo.
+- **Tests & CI:** Jest for unit tests, Playwright for basic UI flows, and GitHub Actions or Replit run script for CI.
+
+---
+
+### 3) Features, API contract, and user flows (must implement)
+
+#### Core flows (implement exactly)
+1. **InitiateRecovery** (owner)  
+   - Frontend form: `NewPublicKey` (public), `RequestedTimelock`, optional metadata.  
+   - Backend: create `RequestId = H(initiator||newKeyCommit||timestamp)`, store `RecoveryRequest` state `INITIATED`, emit `RecoveryInitiated` event.
+
+2. **Generate & Submit Proof** (owner → verifier → on‑chain)  
+   - Frontend: upload `proofBlob` (synthetic) and `publicInputs` (AccountID, RequestId, NewKeyCommit, PolicyCommit, ProofNonce).  
+   - Verifier service: **mock verify** the proofBlob against publicInputs, compute `proofHash = SHA256(proofBlob)`, sign canonical `SignInput` and return `ProofReceipt`.  
+   - Backend: `submitProofReceipt` endpoint verifies `verifierSig`, checks `proofHash` not reused, stores `proofHash`, sets state `PROOF_SUBMITTED`, emits `ProofSubmitted`.
+
+3. **Guardian Approval** (guardian)  
+   - Guardian dashboard lists pending `ProofSubmitted` requests. Guardian verifies receipt off‑chain (mock) and submits `GuardianApproval` (signed).  
+   - Backend verifies guardian signature, increments approvals, if `approvals >= quorum` set state `APPROVED`, emit `GuardianApproved`.
+
+4. **Timelock & Contest**  
+   - Backend enforces `T_lock` (configurable). Monitors can submit `Contest` with `contestHash` (off‑chain evidence reference). If contested, set state `CONTESTED`.
+
+5. **FinalizeRecovery**  
+   - After timelock and if approvals ≥ quorum and no unresolved contest, backend binds `NewKeyCommit` to account mapping and sets state `FINALIZED`, emit `RecoveryFinalized`.
+
+6. **Audit & Event Log**  
+   - All events appended to JSONL log and broadcast via WebSocket. Provide UI to download event log and view ProofReceipts and GuardianApprovals.
+
+#### API endpoints (TypeScript signatures)
+- `POST /api/recovery/initiate` → `{ newKeyCommit, policyCommit, requestedTimelock }` → returns `{ requestId }`
+- `POST /api/recovery/:requestId/submit-proof` → `{ proofReceipt }` → validates verifierSig
+- `POST /api/recovery/:requestId/guardian-approve` → `{ guardianApproval }` → validates guardianSig
+- `POST /api/recovery/:requestId/contest` → `{ contestHash }`
+- `POST /api/recovery/:requestId/finalize` → no body; enforces timelock & quorum
+- `GET /api/recovery/:requestId` → returns request state and metadata
+- `GET /api/events` → returns event log (paginated)
+- `WS /events` → real‑time event stream
+
+#### Canonical serialization & test vectors
+- Implement canonical serialization utilities exactly as in the ZK interface spec: 32‑byte big‑endian fields, length‑prefixed `circuitVersion` and `verifierId`, timestamp as 8‑byte BE. Include the three synthetic test vectors from earlier and unit tests that verify `SignInput` bytes and `transcriptHash` computation.
+
+---
+
+### 4) ZK & Quantum circuit interfaces (non‑actionable, research only)
+- **ZK module** (`/services/zk/`):  
+  - `serializePublicInputs(publicInputs)` → canonical bytes.  
+  - `computeTranscriptHash(publicInputs)` → SHA‑256.  
+  - `mockProve(witness)` → returns synthetic `proofBlob` and `proofHash`.  
+  - `mockVerify(proofBlob, publicInputs)` → boolean (for demo).
+- **Verifier service** (`/services/verifier/`): accepts `proofBlob` + `publicInputs`, returns `ProofReceipt` signed with verifier key. Include code to verify `verifierSig` and to reject reused `proofHash`.
+- **Quantum circuit interface** (`/research/quantum_circuit_interface.md`): include:
+  - high‑level description of URUU quantum circuit purpose (research), public inputs, measurement API, expected outputs, and how it would integrate with the recovery flow as a research oracle (e.g., measurement timestamps, entanglement diagnostics). **Do not** include executable quantum code or instructions for building circuits that could be used to attack wallets. Provide only interface signatures and simulated outputs for demo.
+- **Advanced recovery algorithm module** (`/services/recovery/algorithm.ts`): implement the deterministic state machine, branch selection heuristics, post‑selection vs heralded feedback simulation, and leakage metrics as simulated functions that operate on synthetic MPS/entropy traces (mocked). Provide clear comments that these are simulations for research and testing.
+
+---
+
+### 5) Repo structure, tasks, and Replit run instructions (exact)
+**Repo layout**
+```
+/ (root)
+  /web (Next.js frontend)
+  /api (Fastify backend)
+  /services
+    /verifier
+    /guardian
+    /zk
+    /recovery
+  /research
+    quantum_circuit_interface.md
+    zk_interface_spec.md
+  /tests
+  /scripts
+  README.md
+  replit.nix or .replit (Replit run config)
+```
+
+**Key tasks for Replit AI to implement**
+1. Create Next.js app with pages and forms for each flow. Wire to backend endpoints.
+2. Implement Fastify TypeScript server with endpoints listed above and in‑memory store (Map) for demo.
+3. Implement verifier microservice that signs ProofReceipts using Ed25519 (use `tweetnacl` or `libsodium`).
+4. Implement guardian dashboard with list of pending proofs and ability to submit signed approvals (simulate guardian keypair).
+5. Implement canonical serialization utilities and unit tests using the synthetic vectors.
+6. Implement WebSocket event broadcaster and JSONL event log.
+7. Add `quantum_circuit_interface.md` and `zk_interface_spec.md` with the non‑actionable research interface and synthetic outputs.
+8. Add scripts: `npm run dev` (start frontend + backend + verifier concurrently), `npm test`, `npm run lint`.
+9. Add Replit run configuration to start all services and expose ports.
+
+**Exact commands to include in README and Replit run**
+- `npm install`
+- `npm run dev` — starts frontend on `:3000`, backend on `:4000`, verifier on `:5000`
+- `npm test` — runs unit tests (serialization, signature verification, state transitions)
+- `curl` examples for each endpoint (include sample JSON using synthetic vector V1)
+
+---
+
+### 6) Tests, security checks, and acceptance criteria (must pass)
+- **Unit tests** (Jest): canonical serialization, transcript hash, SignInput bytes, verifier signature verification, proofHash reuse rejection.
+- **Integration tests** (Playwright or supertest): full flow from `initiate` → `submitProof` → `guardianApprove` → `finalize` with synthetic vectors; assert events emitted and final state `FINALIZED`.
+- **Security checks**: input validation, signature verification, rate limiting stub, no secret leakage in logs, and clear warnings in README about demo synthetic data only.
+- **Acceptance criteria**:
+  - UI can initiate a recovery and display `requestId`.
+  - Verifier returns a signed `ProofReceipt` for synthetic proofBlob and publicInputs.
+  - Guardian dashboard shows pending proofs and can submit approvals.
+  - Finalize only succeeds after timelock and quorum; event log contains `RecoveryFinalized`.
+  - All tests pass.
+
+---
+
+### Optional advanced items (bonus)
+- Add optional Anchor/Hardhat contract skeleton in `/onchain` with the IDL from earlier (non‑deployed).  
+- Add Dockerfile and GitHub Actions workflow for CI.  
+- Add a simple demo video script and a 3‑slide deck in `/docs` for pilots.
+
+---
+
+### Final notes for the Replit builder (explicit)
+- **Do not** attempt to connect to any real wallets, private keys, or mainnet. Use synthetic keys and testnets only.  
+- **Label clearly** every mock, simulated, or research output as such in the UI and README.  
+- Provide a clear `SECURITY.md` describing limitations, threat model, and recommended next steps for production (audits, HSMs, MPC, legal).  
+- Produce a single ZIP or repo that runs in Replit with one click and includes a short demo script in README.
+
+---
+
+If you want, I’ll now generate the **exact `README.md` and `replit.nix` / `.replit`** content and the **starter `package.json` + TypeScript server skeleton** so you can paste them directly into Replit and run the project immediately. Which starter files should I produce first?

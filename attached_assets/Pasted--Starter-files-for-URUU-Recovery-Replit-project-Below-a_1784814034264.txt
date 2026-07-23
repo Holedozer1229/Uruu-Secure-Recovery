@@ -1,0 +1,435 @@
+### Starter files for URUU‑Recovery Replit project  
+Below are **ready‑to‑paste** starter files you can drop into a new Replit repo. They include a **README**, a minimal **`.replit`** run config, a **`package.json`**, TypeScript config, and a small **backend skeleton** (Fastify + TypeScript) plus simple verifier and ZK mock modules and synthetic test vectors. These files let you run a demo backend locally on Replit immediately and exercise the canonical serialization and proof‑receipt flows.
+
+---
+
+### 1. README.md (paste as `README.md`)
+```markdown
+# URUU‑Recovery (Replit Starter)
+
+**Purpose**  
+This repository is a demo starter for **URUU‑Recovery**: a privacy‑preserving recovery orchestration service (synthetic/demo only). It implements the recovery state machine, canonical serialization utilities, a mock verifier service that issues signed `ProofReceipt`s, guardian approval handling, and synthetic test vectors. The project is intentionally **demo-only** and uses **synthetic data**; it does **not** connect to real wallets or mainnet.
+
+**What this repo contains**
+- `src/` — TypeScript backend (Fastify) with recovery endpoints.
+- `services/verifier/` — mock verifier that signs ProofReceipts (Ed25519).
+- `services/zk/` — mock ZK prover/verifier and canonical serialization utilities.
+- `vectors/` — synthetic public input test vectors.
+- `tests/` — unit tests (serialization, signature verification).
+- `.replit` — Replit run configuration.
+
+**Quick start (Replit)**
+1. Create a new Replit Node/TypeScript project and paste these files.
+2. Set environment variables in Replit Secrets:
+   - `VERIFIER_PRIVATE_KEY` — base64 Ed25519 private key for demo (or leave blank to auto‑generate).
+   - `GUARDIAN_KEYS` — optional JSON array of guardian public keys for demo.
+3. Run the project (Replit will use `.replit` to start the server).
+4. Open the webview or use the API endpoints below.
+
+**API endpoints (demo)**
+- `POST /api/recovery/initiate`  
+  Body: `{ "initiator": "<pubkey>", "newKeyCommit": "<hex32>", "policyCommit": "<hex32>", "requestedTimelock": 3600 }`  
+  Returns: `{ "requestId": "<hex32>" }`
+
+- `POST /api/recovery/:requestId/submit-proof`  
+  Body: `{ "proofReceipt": { ... } }` — verifies `verifierSig`, stores `proofHash`.
+
+- `POST /api/recovery/:requestId/guardian-approve`  
+  Body: `{ "guardianApproval": { ... } }` — verifies guardian signature and increments approvals.
+
+- `POST /api/recovery/:requestId/finalize`  
+  No body. Enforces timelock and quorum; finalizes if conditions met.
+
+- `GET /api/recovery/:requestId` — returns request state.
+
+**Testing**
+- `npm test` runs unit tests for canonical serialization and signature verification.
+
+**Security & limitations**
+- This is a **demo**. Do **not** use with real private keys or mainnet accounts.
+- All cryptographic operations use standard libs but the ZK prover is mocked.
+- See `SECURITY.md` for recommended production steps (HSMs, audits, MPC).
+
+**Next steps**
+- Add a frontend (Next.js) that calls these endpoints.
+- Replace mock verifier with a real ZK verifier service and integrate real proofs.
+- Add on‑chain contract skeleton (Anchor/Hardhat) in `/onchain`.
+
+```
+
+---
+
+### 2. `.replit` (paste as `.replit`)
+```ini
+run = "bash start-dev.sh"
+```
+
+Also add a simple `start-dev.sh` script (see below).
+
+---
+
+### 3. `package.json` (paste as `package.json`)
+```json
+{
+  "name": "uruu-recovery-starter",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
+    "start": "node dist/server.js",
+    "test": "jest --runInBand",
+    "lint": "eslint . --ext .ts"
+  },
+  "dependencies": {
+    "fastify": "^4.20.0",
+    "fastify-cors": "^8.2.0",
+    "tweetnacl": "^1.0.3",
+    "bs58": "^5.0.0",
+    "dotenv": "^16.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.0.0",
+    "jest": "^29.0.0",
+    "@types/jest": "^29.0.0",
+    "supertest": "^6.3.0",
+    "@types/supertest": "^2.0.12",
+    "eslint": "^8.0.0",
+    "@typescript-eslint/parser": "^5.0.0",
+    "@typescript-eslint/eslint-plugin": "^5.0.0"
+  }
+}
+```
+
+---
+
+### 4. `tsconfig.json` (paste as `tsconfig.json`)
+```json
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "CommonJS",
+    "outDir": "dist",
+    "rootDir": "src",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["src", "services", "tests"]
+}
+```
+
+---
+
+### 5. `start-dev.sh` (paste as `start-dev.sh`, make executable)
+```bash
+#!/usr/bin/env bash
+# Start the demo backend (Fastify). Replit will run this.
+export NODE_ENV=development
+# Use ts-node-dev for hot reload in Replit
+npx ts-node-dev --respawn --transpile-only src/server.ts
+```
+
+---
+
+### 6. Backend skeleton — `src/server.ts`
+```ts
+import Fastify from 'fastify';
+import cors from 'fastify-cors';
+import dotenv from 'dotenv';
+import recoveryRoutes from './routes/recovery';
+import { initVerifier } from '../services/verifier';
+
+dotenv.config();
+
+const server = Fastify({ logger: true });
+server.register(cors, { origin: true });
+
+// Initialize verifier (loads or generates demo key)
+initVerifier();
+
+server.register(recoveryRoutes, { prefix: '/api/recovery' });
+
+const start = async () => {
+  try {
+    await server.listen({ port: 4000, host: '0.0.0.0' });
+    server.log.info('URUU Recovery API running on 0.0.0.0:4000');
+  } catch (err) {
+    server.log.error(err);
+    process.exit(1);
+  }
+};
+
+start();
+```
+
+---
+
+### 7. Recovery routes — `src/routes/recovery.ts`
+```ts
+import { FastifyInstance } from 'fastify';
+import { randomBytes, createHash } from 'crypto';
+import { signProofReceipt, verifyVerifierSignature } from '../../services/verifier';
+import { canonicalSignInput } from '../utils/serialization';
+import { ProofReceipt, GuardianApproval, RecoveryRequest } from '../types';
+
+const store = new Map<string, RecoveryRequest>();
+
+export default async function (fastify: FastifyInstance) {
+  fastify.post('/initiate', async (req, reply) => {
+    const body = req.body as any;
+    const initiator = body.initiator || 'demo-initiator';
+    const newKeyCommit = body.newKeyCommit;
+    const policyCommit = body.policyCommit;
+    const requestedTimelock = body.requestedTimelock || 3600;
+    const timestamp = Math.floor(Date.now() / 1000);
+    const requestId = createHash('sha256').update(initiator + newKeyCommit + String(timestamp)).digest('hex');
+
+    const rec: RecoveryRequest = {
+      initiator,
+      new_key_commit: newKeyCommit,
+      policy_commit: policyCommit,
+      request_id: requestId,
+      proof_hash: null,
+      approvals_count: 0,
+      state: 0,
+      timestamp,
+      approvals: []
+    };
+    store.set(requestId, rec);
+    return reply.send({ requestId });
+  });
+
+  fastify.post('/:requestId/submit-proof', async (req, reply) => {
+    const { requestId } = req.params as any;
+    const body = req.body as any;
+    const proofReceipt: ProofReceipt = body.proofReceipt;
+    const rec = store.get(requestId);
+    if (!rec) return reply.status(404).send({ error: 'request not found' });
+
+    // Verify verifier signature (mock)
+    const signInput = canonicalSignInput(proofReceipt.requestId, proofReceipt.accountId, proofReceipt.proofHash, proofReceipt.proofNonce, proofReceipt.circuitVersion, proofReceipt.timestamp, proofReceipt.verifierId);
+    const ok = verifyVerifierSignature(signInput, proofReceipt.verifierSig, proofReceipt.verifierId);
+    if (!ok) return reply.status(400).send({ error: 'invalid verifier signature' });
+
+    // Check reuse of proofHash
+    for (const [k, v] of store.entries()) {
+      if (v.proof_hash && v.proof_hash === proofReceipt.proofHash && k !== requestId) {
+        return reply.status(400).send({ error: 'proofHash already used for another request' });
+      }
+    }
+
+    rec.proof_hash = proofReceipt.proofHash;
+    rec.state = 1; // PROOF_SUBMITTED
+    store.set(requestId, rec);
+    return reply.send({ ok: true });
+  });
+
+  fastify.post('/:requestId/guardian-approve', async (req, reply) => {
+    const { requestId } = req.params as any;
+    const body = req.body as any;
+    const approval: GuardianApproval = body.guardianApproval;
+    const rec = store.get(requestId);
+    if (!rec) return reply.status(404).send({ error: 'request not found' });
+
+    // For demo, accept any guardian signature that matches the guardian_id field (signature verification stub)
+    // In production, verify guardian signature properly.
+    if (approval.proofHash !== rec.proof_hash) return reply.status(400).send({ error: 'proofHash mismatch' });
+
+    // Prevent duplicate approvals
+    if (rec.approvals.includes(approval.guardianId)) return reply.status(400).send({ error: 'duplicate approval' });
+
+    rec.approvals.push(approval.guardianId);
+    rec.approvals_count = rec.approvals.length;
+    if (rec.approvals_count >= 3) rec.state = 2; // APPROVED (demo quorum=3)
+    store.set(requestId, rec);
+    return reply.send({ ok: true, approvals: rec.approvals_count });
+  });
+
+  fastify.post('/:requestId/finalize', async (req, reply) => {
+    const { requestId } = req.params as any;
+    const rec = store.get(requestId);
+    if (!rec) return reply.status(404).send({ error: 'request not found' });
+
+    const now = Math.floor(Date.now() / 1000);
+    const T_lock = 10; // demo 10 seconds timelock
+    if (now < rec.timestamp + T_lock) return reply.status(400).send({ error: 'timelock not expired' });
+    if (rec.state !== 2) return reply.status(400).send({ error: 'not approved' });
+
+    rec.state = 4; // FINALIZED
+    store.set(requestId, rec);
+    return reply.send({ ok: true, newKeyCommit: rec.new_key_commit });
+  });
+
+  fastify.get('/:requestId', async (req, reply) => {
+    const { requestId } = req.params as any;
+    const rec = store.get(requestId);
+    if (!rec) return reply.status(404).send({ error: 'request not found' });
+    return reply.send(rec);
+  });
+}
+```
+
+---
+
+### 8. Canonical serialization util — `src/utils/serialization.ts`
+```ts
+import { createHash } from 'crypto';
+
+/**
+ * Canonical SignInput bytes:
+ * requestId || accountId || proofHash || proofNonce || circuitVersion (len+utf8) || timestamp (8-byte BE) || verifierId (len+utf8)
+ */
+export function canonicalSignInput(requestId: string, accountId: string, proofHash: string, proofNonce: string, circuitVersion: string, timestamp: number, verifierId: string): Buffer {
+  const parts: Buffer[] = [];
+  parts.push(Buffer.from(strip0x(requestId), 'hex').slice(0,32));
+  parts.push(Buffer.from(strip0x(accountId), 'hex').slice(0,32));
+  parts.push(Buffer.from(strip0x(proofHash), 'hex').slice(0,32));
+  parts.push(Buffer.from(strip0x(proofNonce), 'hex').slice(0,32));
+  const cv = Buffer.from(circuitVersion, 'utf8');
+  parts.push(Buffer.concat([Buffer.from([cv.length]), cv]));
+  const ts = Buffer.alloc(8);
+  ts.writeBigUInt64BE(BigInt(timestamp));
+  parts.push(ts);
+  const vid = Buffer.from(verifierId, 'utf8');
+  parts.push(Buffer.concat([Buffer.from([vid.length]), vid]));
+  return Buffer.concat(parts);
+}
+
+function strip0x(s: string) {
+  return s.startsWith('0x') ? s.slice(2) : s;
+}
+
+/** Simple transcript hash for public inputs */
+export function transcriptHash(accountId: string, requestId: string, newKeyCommit: string, policyCommit: string, compromisedListHash: string, proofNonce: string, circuitVersion: string): string {
+  const h = createHash('sha256');
+  h.update(Buffer.from(strip0x(accountId), 'hex').slice(0,32));
+  h.update(Buffer.from(strip0x(requestId), 'hex').slice(0,32));
+  h.update(Buffer.from(strip0x(newKeyCommit), 'hex').slice(0,32));
+  h.update(Buffer.from(strip0x(policyCommit), 'hex').slice(0,32));
+  h.update(Buffer.from(strip0x(compromisedListHash), 'hex').slice(0,32));
+  h.update(Buffer.from(strip0x(proofNonce), 'hex').slice(0,32));
+  h.update(Buffer.from(circuitVersion, 'utf8'));
+  return '0x' + h.digest('hex');
+}
+```
+
+---
+
+### 9. Mock verifier service — `services/verifier/index.ts`
+```ts
+import nacl from 'tweetnacl';
+import { canonicalSignInput } from '../../src/utils/serialization';
+import { randomBytes } from 'crypto';
+
+let verifierKeyPair: nacl.SignKeyPair | null = null;
+
+export function initVerifier() {
+  const envKey = process.env.VERIFIER_PRIVATE_KEY;
+  if (envKey) {
+    const sk = Buffer.from(envKey, 'base64');
+    const pk = nacl.sign.keyPair.fromSecretKey(new Uint8Array(sk)).publicKey;
+    verifierKeyPair = { secretKey: new Uint8Array(sk), publicKey: pk };
+    console.log('Loaded verifier key from env');
+  } else {
+    verifierKeyPair = nacl.sign.keyPair();
+    console.log('Generated demo verifier keypair');
+  }
+}
+
+export function signProofReceipt(signInput: Buffer): { signature: string, verifierId: string } {
+  if (!verifierKeyPair) initVerifier();
+  const sig = nacl.sign.detached(signInput, verifierKeyPair!.secretKey);
+  return { signature: Buffer.from(sig).toString('hex'), verifierId: 'verifier-01' };
+}
+
+export function verifyVerifierSignature(signInput: Buffer, signatureHex: string, verifierId: string): boolean {
+  if (!verifierKeyPair) initVerifier();
+  const sig = Buffer.from(signatureHex, 'hex');
+  return nacl.sign.detached.verify(signInput, new Uint8Array(sig), verifierKeyPair!.publicKey);
+}
+```
+
+---
+
+### 10. Mock ZK module — `services/zk/mock.ts`
+```ts
+import { createHash } from 'crypto';
+
+/** Mock prove: returns synthetic proofBlob and proofHash */
+export function mockProve(witness: any): { proofBlob: string, proofHash: string } {
+  // For demo, produce deterministic synthetic blob from witness JSON
+  const blob = Buffer.from(JSON.stringify(witness) + ':synthetic');
+  const proofHash = createHash('sha256').update(blob).digest('hex');
+  return { proofBlob: '0x' + blob.toString('hex'), proofHash: '0x' + proofHash };
+}
+
+/** Mock verify: checks proofHash matches blob */
+export function mockVerify(proofBlobHex: string, publicInputs: any, expectedProofHash: string): boolean {
+  const blob = Buffer.from(proofBlobHex.replace(/^0x/, ''), 'hex');
+  const h = createHash('sha256').update(blob).digest('hex');
+  return ('0x' + h) === expectedProofHash;
+}
+```
+
+---
+
+### 11. Synthetic test vectors — `vectors/test_vectors.json`
+```json
+{
+  "vectors": [
+    {
+      "name": "V1",
+      "accountId": "0x1111111111111111111111111111111111111111111111111111111111111111",
+      "requestId": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "newKeyCommit": "0x2222222222222222222222222222222222222222222222222222222222222222",
+      "policyCommit": "0x3333333333333333333333333333333333333333333333333333333333333333",
+      "compromisedLeafPubListHash": "0x4444444444444444444444444444444444444444444444444444444444444444",
+      "proofNonce": "0x5555555555555555555555555555555555555555555555555555555555555555",
+      "proofBlob": "0xdeadbeefcafebabe",
+      "proofHash": "0x6f1e2b3c4d5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c"
+    }
+  ]
+}
+```
+
+---
+
+### 12. Tests (example) — `tests/serialization.test.ts`
+```ts
+import { canonicalSignInput, transcriptHash } from '../src/utils/serialization';
+import vectors from '../vectors/test_vectors.json';
+
+test('canonical sign input length and reproducible', () => {
+  const v = vectors.vectors[0];
+  const ts = canonicalSignInput(v.requestId, v.accountId, v.proofHash, v.proofNonce, 'v1.0', 1670000000, 'verifier-01');
+  expect(ts.length).toBeGreaterThan(0);
+});
+
+test('transcript hash deterministic', () => {
+  const v = vectors.vectors[0];
+  const h = transcriptHash(v.accountId, v.requestId, v.newKeyCommit, v.policyCommit, v.compromisedLeafPubListHash, v.proofNonce, 'v1.0');
+  expect(h.startsWith('0x')).toBe(true);
+});
+```
+
+---
+
+## How to run (exact)
+1. Paste files into a new Replit Node/TypeScript project.  
+2. Add `VERIFIER_PRIVATE_KEY` in Replit Secrets if you want a persistent demo key (base64 of Ed25519 secret key). Otherwise the demo generates a key on startup.  
+3. Click **Run** (Replit will execute `.replit` → `start-dev.sh`).  
+4. Use the API endpoints above (port `4000`) to exercise the flow. Example `curl`:
+
+```bash
+curl -X POST http://localhost:4000/api/recovery/initiate \
+  -H "Content-Type: application/json" \
+  -d '{"initiator":"demo","newKeyCommit":"0x2222...","policyCommit":"0x3333...","requestedTimelock":10}'
+```
+
+---
+
+If you want, I’ll now generate **(A)** the full Next.js frontend starter (React pages and forms wired to these endpoints), **or** **(B)** the Anchor/Hardhat on‑chain contract skeleton (IDL + Rust/TS skeleton) next. Which do you want me to produce now?

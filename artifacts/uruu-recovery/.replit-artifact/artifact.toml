@@ -1,0 +1,27 @@
+kind = "web"
+previewPath = "/"
+title = "URUU Recovery Portal"
+version = "1.0.0"
+id = "artifacts/uruu-recovery"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 22241
+
+[services.development]
+run = "pnpm --filter @workspace/uruu-recovery run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/uruu-recovery", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/uruu-recovery/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "22241"
+BASE_PATH = "/"

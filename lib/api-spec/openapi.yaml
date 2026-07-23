@@ -3,13 +3,21 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: URUU Recovery Portal API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: recovery
+    description: Recovery lifecycle operations
+  - name: events
+    description: Event log and monitoring
+  - name: guardian
+    description: Guardian operations
+  - name: stats
+    description: Dashboard statistics
 paths:
   /healthz:
     get:
@@ -24,6 +32,297 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /recovery:
+    get:
+      operationId: listRecoveryRequests
+      tags: [recovery]
+      summary: List all recovery requests
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [INITIATED, PROOF_SUBMITTED, APPROVED, CONTESTED, FINALIZED]
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 20
+        - in: query
+          name: offset
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: List of recovery requests
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecoveryRequestList"
+    post:
+      operationId: initiateRecovery
+      tags: [recovery]
+      summary: Initiate a recovery request
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecoveryInitInput"
+      responses:
+        "201":
+          description: Recovery request created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecoveryRequest"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /recovery/{requestId}:
+    get:
+      operationId: getRecoveryRequest
+      tags: [recovery]
+      summary: Get a recovery request by ID
+      parameters:
+        - in: path
+          name: requestId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Recovery request details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecoveryRequest"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /recovery/{requestId}/submit-proof:
+    post:
+      operationId: submitProof
+      tags: [recovery]
+      summary: Submit a ZK proof receipt for a recovery request
+      parameters:
+        - in: path
+          name: requestId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProofSubmitInput"
+      responses:
+        "200":
+          description: Proof accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecoveryRequest"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Proof hash already used
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /recovery/{requestId}/guardian-approve:
+    post:
+      operationId: guardianApprove
+      tags: [guardian]
+      summary: Submit a guardian approval for a recovery request
+      parameters:
+        - in: path
+          name: requestId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GuardianApprovalInput"
+      responses:
+        "200":
+          description: Guardian approval recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecoveryRequest"
+        "400":
+          description: Validation error or wrong state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /recovery/{requestId}/contest:
+    post:
+      operationId: contestRecovery
+      tags: [recovery]
+      summary: Contest a recovery request
+      parameters:
+        - in: path
+          name: requestId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContestInput"
+      responses:
+        "200":
+          description: Contest recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecoveryRequest"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /recovery/{requestId}/finalize:
+    post:
+      operationId: finalizeRecovery
+      tags: [recovery]
+      summary: Finalize a recovery request after timelock and quorum
+      parameters:
+        - in: path
+          name: requestId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Recovery finalized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecoveryRequest"
+        "400":
+          description: Timelock not elapsed or quorum not met
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /recovery/{requestId}/proof-verify:
+    post:
+      operationId: verifyProof
+      tags: [recovery]
+      summary: Mock-verify a ZK proof and return a signed ProofReceipt
+      parameters:
+        - in: path
+          name: requestId
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProofVerifyInput"
+      responses:
+        "200":
+          description: ProofReceipt returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProofReceipt"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /events:
+    get:
+      operationId: listEvents
+      tags: [events]
+      summary: Get paginated event log
+      parameters:
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 50
+        - in: query
+          name: offset
+          schema:
+            type: integer
+            default: 0
+        - in: query
+          name: requestId
+          schema:
+            type: ["string", "null"]
+        - in: query
+          name: eventType
+          schema:
+            type: ["string", "null"]
+      responses:
+        "200":
+          description: Event log entries
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventList"
+
+  /stats:
+    get:
+      operationId: getStats
+      tags: [stats]
+      summary: Get dashboard statistics
+      responses:
+        "200":
+          description: Summary statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardStats"
+
+  /guardian/pending:
+    get:
+      operationId: listPendingApprovals
+      tags: [guardian]
+      summary: List recovery requests pending guardian approval
+      responses:
+        "200":
+          description: Pending recovery requests
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecoveryRequestList"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +333,214 @@ components:
       required:
         - status
 
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+
+    RecoveryStatus:
+      type: string
+      enum: [INITIATED, PROOF_SUBMITTED, APPROVED, CONTESTED, FINALIZED]
+
+    GuardianApproval:
+      type: object
+      required: [guardianId, signature, timestamp]
+      properties:
+        guardianId:
+          type: string
+        signature:
+          type: string
+        timestamp:
+          type: string
+
+    ProofReceipt:
+      type: object
+      required: [proofHash, publicInputsHash, verifierSig, timestamp, requestId]
+      properties:
+        proofHash:
+          type: string
+        publicInputsHash:
+          type: string
+        verifierSig:
+          type: string
+        timestamp:
+          type: string
+        requestId:
+          type: string
+        accountId:
+          type: ["string", "null"]
+        newKeyCommit:
+          type: ["string", "null"]
+
+    RecoveryRequest:
+      type: object
+      required: [requestId, status, newKeyCommit, policyCommit, requestedTimelock, approvalCount, quorum, createdAt, updatedAt]
+      properties:
+        requestId:
+          type: string
+        status:
+          $ref: "#/components/schemas/RecoveryStatus"
+        newKeyCommit:
+          type: string
+        policyCommit:
+          type: string
+        requestedTimelock:
+          type: integer
+          description: Timelock in seconds
+        approvalCount:
+          type: integer
+        quorum:
+          type: integer
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+        timelockExpiresAt:
+          type: ["string", "null"]
+        proofReceipt:
+          $ref: "#/components/schemas/ProofReceipt"
+          nullable: true
+        guardianApprovals:
+          type: array
+          items:
+            $ref: "#/components/schemas/GuardianApproval"
+        contestHash:
+          type: ["string", "null"]
+        finalizedAt:
+          type: ["string", "null"]
+        metadata:
+          type: ["string", "null"]
+
+    RecoveryRequestList:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/RecoveryRequest"
+        total:
+          type: integer
+
+    RecoveryInitInput:
+      type: object
+      required: [newKeyCommit, policyCommit, requestedTimelock]
+      properties:
+        newKeyCommit:
+          type: string
+          minLength: 10
+        policyCommit:
+          type: string
+          minLength: 10
+        requestedTimelock:
+          type: integer
+          minimum: 60
+          maximum: 2592000
+        metadata:
+          type: string
+
+    ProofSubmitInput:
+      type: object
+      required: [proofReceipt]
+      properties:
+        proofReceipt:
+          $ref: "#/components/schemas/ProofReceipt"
+
+    ProofVerifyInput:
+      type: object
+      required: [proofBlob, publicInputs]
+      properties:
+        proofBlob:
+          type: string
+          description: Base64-encoded synthetic proof blob
+        publicInputs:
+          type: object
+          required: [accountId, requestId, newKeyCommit, policyCommit, proofNonce]
+          properties:
+            accountId:
+              type: string
+            requestId:
+              type: string
+            newKeyCommit:
+              type: string
+            policyCommit:
+              type: string
+            proofNonce:
+              type: string
+
+    GuardianApprovalInput:
+      type: object
+      required: [guardianId, signature]
+      properties:
+        guardianId:
+          type: string
+        signature:
+          type: string
+
+    ContestInput:
+      type: object
+      required: [contestHash]
+      properties:
+        contestHash:
+          type: string
+          minLength: 10
+
+    RecoveryEvent:
+      type: object
+      required: [id, eventType, requestId, timestamp, dataJson]
+      properties:
+        id:
+          type: string
+        eventType:
+          type: string
+        requestId:
+          type: ["string", "null"]
+        timestamp:
+          type: string
+        dataJson:
+          type: string
+          description: JSON-serialized event data
+
+    EventList:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/RecoveryEvent"
+        total:
+          type: integer
+
+    StatusCount:
+      type: object
+      required: [status, count]
+      properties:
+        status:
+          type: string
+        count:
+          type: integer
+
+    DashboardStats:
+      type: object
+      required: [totalRequests, byStatus, totalEvents, approvalRate, avgApprovalTime]
+      properties:
+        totalRequests:
+          type: integer
+        byStatus:
+          type: array
+          items:
+            $ref: "#/components/schemas/StatusCount"
+        totalEvents:
+          type: integer
+        approvalRate:
+          type: number
+        avgApprovalTime:
+          type: ["number", "null"]
+          description: Average time to approval in seconds
+        recentActivity:
+          type: array
+          items:
+            $ref: "#/components/schemas/RecoveryEvent"
