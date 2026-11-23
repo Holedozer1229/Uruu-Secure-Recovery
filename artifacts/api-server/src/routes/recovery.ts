@@ -1,4 +1,4 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Request, type Response } from "express";
 import { eq, desc, and, count, avg, sql } from "drizzle-orm";
 import { db, recoveryRequestsTable, guardianApprovalsTable, eventsTable } from "@workspace/db";
 import {
@@ -70,7 +70,7 @@ function formatRequest(row: typeof recoveryRequestsTable.$inferSelect, approvals
 }
 
 
-function requireFrostOperator(req: Parameters<Parameters<typeof router.get>[1]>[0], res: Parameters<Parameters<typeof router.get>[1]>[1]): boolean {
+function requireFrostOperator(req: Request, res: Response): boolean {
   const operatorId = req.header("x-frost-operator-id") ?? "";
   const authorization = req.header("authorization") ?? "";
   const token = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
