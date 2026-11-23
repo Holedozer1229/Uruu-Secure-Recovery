@@ -144,6 +144,10 @@ router.post("/recovery", async (req, res): Promise<void> => {
     const guardians = loadGuardianRegistry();
     if (guardians.size < policy.quorum) throw new Error("Guardian registry does not satisfy quorum.");
     const { newKeyCommit, policyCommit, requestedTimelock, metadata } = parsed.data;
+    if (!Number.isSafeInteger(requestedTimelock)) {
+      res.status(400).json({ error: "Requested timelock must be a whole number of seconds." });
+      return;
+    }
     if (requestedTimelock < policy.minimumTimelockSeconds || requestedTimelock > policy.maximumTimelockSeconds) {
       res.status(400).json({ error: "Requested timelock is outside the configured recovery policy." });
       return;
