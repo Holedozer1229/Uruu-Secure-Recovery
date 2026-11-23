@@ -24,6 +24,7 @@ import {
   loadRecoveryPolicy,
   validateChainSigningIntent,
   verifyGuardianApproval,
+  verifyFrostOperatorToken,
   verifyProofVerifierReceipt,
 } from "../lib/recoveryPolicy.js";
 
@@ -66,6 +67,18 @@ function formatRequest(row: typeof recoveryRequestsTable.$inferSelect, approvals
     finalizedAt: row.finalizedAt?.toISOString() ?? null,
     metadata: row.metadata ?? null,
   };
+}
+
+
+function requireFrostOperator(req: Parameters<Parameters<typeof router.get>[1]>[0], res: Parameters<Parameters<typeof router.get>[1]>[1]): boolean {
+  const operatorId = req.header("x-frost-operator-id") ?? "";
+  const authorization = req.header("authorization") ?? "";
+  const token = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
+  try {
+    if (verifyFrostOperatorToken(operatorId, token)) return true;
+  } catch { /* Missing or invalid operator registry fails closed. */ }
+  res.status(401).json({ error: "Authenticated FrostGate operator credentials required." });
+  return false;
 }
 
 async function getApprovals(requestId: string) {
@@ -384,6 +397,7 @@ router.post("/recovery/:requestId/guardian-approve", async (req, res): Promise<v
 // Independent FROST operators fetch this certificate and verify it locally.
 // This endpoint does not contact signers, create signature shares, or broadcast.
 router.get("/recovery/:requestId/signing-intent", async (req, res): Promise<void> => {
+  if (!requireFrostOperator(req, res)) return;
   const params = GetRecoveryRequestParams.safeParse(req.params);
   if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
   const { requestId } = params.data;
@@ -450,6 +464,7 @@ router.get("/recovery/:requestId/signing-intent", async (req, res): Promise<void
 // Operators re-check this endpoint immediately before emitting each share.
 // Production deployment must protect it with mutual TLS/operator authentication.
 router.get("/recovery/:requestId/operator-status", async (req, res): Promise<void> => {
+  if (!requireFrostOperator(req, res)) return;
   const params = GetRecoveryRequestParams.safeParse(req.params);
   if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
   const [row] = await db.select().from(recoveryRequestsTable)
