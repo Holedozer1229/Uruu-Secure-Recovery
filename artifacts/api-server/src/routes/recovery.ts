@@ -481,6 +481,7 @@ router.get("/recovery/:requestId/operator-status", async (req, res): Promise<voi
     approvalCount: row.approvalCount,
     quorum: row.quorum,
     policyVersion: activePolicyVersion,
+    checkedAt: Math.floor(Date.now() / 1000),
     revoked,
   });
 });
