@@ -455,10 +455,23 @@ router.get("/recovery/:requestId/operator-status", async (req, res): Promise<voi
     chainIntentHash = hashChainSigningIntent(intent);
     expiresAt = intent.expiresAt;
   } catch { /* Invalid or absent intent is a revoked authorization. */ }
+  let activePolicyVersion: string | null = null;
+  let activeQuorum: number | null = null;
+  try {
+    const policy = loadRecoveryPolicy();
+    activePolicyVersion = policy.version;
+    activeQuorum = policy.quorum;
+  } catch { /* Missing policy configuration revokes the authorization. */ }
+  let storedPolicyVersion: string | null = null;
+  try {
+    storedPolicyVersion = (JSON.parse(row.metadata ?? "{}") as Record<string, unknown>).policyVersion as string;
+  } catch { /* Malformed stored policy revokes the authorization. */ }
   const revoked = row.status !== "APPROVED" || Boolean(row.contestHash) ||
     !row.proofHash || row.approvalCount < row.quorum ||
     !row.timelockExpiresAt || row.timelockExpiresAt.getTime() > Date.now() ||
-    !expiresAt || expiresAt <= Math.floor(Date.now() / 1000);
+    !expiresAt || expiresAt <= Math.floor(Date.now() / 1000) ||
+    !activePolicyVersion || storedPolicyVersion !== activePolicyVersion ||
+    activeQuorum !== row.quorum;
   res.json({
     schema: "uruu.frostgate-operator-status.v1",
     requestId: row.requestId,
@@ -467,6 +480,7 @@ router.get("/recovery/:requestId/operator-status", async (req, res): Promise<voi
     status: row.status,
     approvalCount: row.approvalCount,
     quorum: row.quorum,
+    policyVersion: activePolicyVersion,
     revoked,
   });
 });
