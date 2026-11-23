@@ -244,11 +244,12 @@ export function buildGuardianApprovalMessage(input: {
 export function verifyFrostOperatorToken(operatorId: string, token: string): boolean {
   const configured = parseJsonEnv<Record<string, string>>("URUU_FROST_OPERATOR_TOKENS_JSON");
   const entries = Object.entries(configured);
-  if (entries.length !== 5 || new Set(entries.map(([, value]) => value)).size !== entries.length) {
-    throw new Error("FROST operator registry requires exactly five unique operator tokens.");
+  if (entries.length !== 5 || entries.some(([, value]) => typeof value !== "string" || value.length < 32) ||
+      new Set(entries.map(([, value]) => value)).size !== entries.length) {
+    throw new Error("FROST operator registry requires exactly five unique 32+ character tokens.");
   }
   const expected = configured[operatorId];
-  if (!expected || expected.length < 32 || token.length < 32) return false;
+  if (typeof expected !== "string" || expected.length < 32 || token.length < 32) return false;
   const expectedBytes = Buffer.from(expected, "utf8");
   const suppliedBytes = Buffer.from(token, "utf8");
   return expectedBytes.length === suppliedBytes.length && timingSafeEqual(expectedBytes, suppliedBytes);
