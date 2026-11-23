@@ -477,11 +477,14 @@ router.get("/recovery/:requestId/operator-status", async (req, res): Promise<voi
   if (!row) { res.status(404).json({ error: "Recovery request not found" }); return; }
   let chainIntentHash: string | null = null;
   let expiresAt: number | null = null;
+  let publicInputsHash: string | null = null;
   try {
     const metadataObject = JSON.parse(row.metadata ?? "{}") as Record<string, unknown>;
     const intent = validateChainSigningIntent(metadataObject.chainIntent, row.requestId);
     chainIntentHash = hashChainSigningIntent(intent);
     expiresAt = intent.expiresAt;
+    const receipt = JSON.parse(row.proofReceiptJson ?? "{}") as { publicInputsHash?: string };
+    publicInputsHash = receipt.publicInputsHash ?? null;
   } catch { /* Invalid or absent intent is a revoked authorization. */ }
   let activePolicyVersion: string | null = null;
   let activeQuorum: number | null = null;
@@ -511,6 +514,11 @@ router.get("/recovery/:requestId/operator-status", async (req, res): Promise<voi
     approvalCount: row.approvalCount,
     quorum: row.quorum,
     policyVersion: activePolicyVersion,
+    newKeyCommit: row.newKeyCommit,
+    policyCommit: row.policyCommit,
+    proofHash: row.proofHash,
+    publicInputsHash,
+    timelockExpiresAt: row.timelockExpiresAt?.toISOString() ?? null,
     checkedAt: Math.floor(Date.now() / 1000),
     revoked,
   });
