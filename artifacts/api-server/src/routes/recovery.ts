@@ -258,7 +258,7 @@ router.get("/recovery/:requestId/guardian-challenge/:guardianId", async (req, re
   const [row] = await db.select().from(recoveryRequestsTable)
     .where(eq(recoveryRequestsTable.requestId, params.data.requestId));
   if (!row) { res.status(404).json({ error: "Recovery request not found" }); return; }
-  if (row.status !== "PROOF_SUBMITTED" || !row.proofHash || !row.metadata) {
+  if (row.status !== "PROOF_SUBMITTED" || !row.proofHash || !row.proofReceiptJson || !row.timelockExpiresAt || !row.metadata) {
     res.status(409).json({ error: "Recovery is not ready for guardian approval." }); return;
   }
   try {
@@ -273,6 +273,8 @@ router.get("/recovery/:requestId/guardian-challenge/:guardianId", async (req, re
       policyVersion: policy.version, requestId: row.requestId, guardianId,
       newKeyCommit: row.newKeyCommit, policyCommit: row.policyCommit,
       requestedTimelock: row.requestedTimelock, proofHash: row.proofHash,
+      publicInputsHash: (JSON.parse(row.proofReceiptJson) as { publicInputsHash: string }).publicInputsHash,
+      timelockExpiresAt: row.timelockExpiresAt.toISOString(),
       chainIntentHash: hashChainSigningIntent(intent),
     });
     res.json({
@@ -308,7 +310,7 @@ router.post("/recovery/:requestId/guardian-approve", async (req, res): Promise<v
         .where(eq(recoveryRequestsTable.requestId, requestId)).for("update");
       if (!row) throw new Error("NOT_FOUND: Recovery request not found.");
       if (row.status !== "PROOF_SUBMITTED") throw new Error(`CONFLICT: Cannot approve in status ${row.status}.`);
-      if (!row.proofHash || !row.metadata) throw new Error("CONFLICT: Proof or chain intent commitment is missing.");
+      if (!row.proofHash || !row.proofReceiptJson || !row.timelockExpiresAt || !row.metadata) throw new Error("CONFLICT: Proof, timelock, or chain intent commitment is missing.");
       if (row.quorum !== policy.quorum) throw new Error("CONFLICT: Stored quorum differs from active policy.");
       const metadataObject = JSON.parse(row.metadata) as Record<string, unknown>;
       if (metadataObject.policyVersion !== policy.version) throw new Error("CONFLICT: Stored policy version differs from active policy.");
@@ -334,6 +336,8 @@ router.post("/recovery/:requestId/guardian-approve", async (req, res): Promise<v
           policyVersion: policy.version, requestId, guardianId: approval.guardianId,
           newKeyCommit: row.newKeyCommit, policyCommit: row.policyCommit,
           requestedTimelock: row.requestedTimelock, proofHash: row.proofHash,
+          publicInputsHash: (JSON.parse(row.proofReceiptJson!) as { publicInputsHash: string }).publicInputsHash,
+          timelockExpiresAt: row.timelockExpiresAt!.toISOString(),
           chainIntentHash: intentHash,
         });
         if (!verifyGuardianApproval(approval.guardianId, approval.signature, existingMessage, registry)) {
@@ -404,6 +408,8 @@ router.get("/recovery/:requestId/signing-intent", async (req, res): Promise<void
       policyVersion: policy.version, requestId, guardianId: "",
       newKeyCommit: row.newKeyCommit, policyCommit: row.policyCommit,
       requestedTimelock: row.requestedTimelock, proofHash: row.proofHash!,
+      publicInputsHash: (JSON.parse(row.proofReceiptJson ?? "{}") as { publicInputsHash: string }).publicInputsHash,
+      timelockExpiresAt: row.timelockExpiresAt!.toISOString(),
       chainIntentHash: hashChainSigningIntent(chainIntent),
     });
     const approvals = await getApprovals(requestId);
