@@ -110,12 +110,13 @@ export function validateChainSigningIntent(value: unknown, requestId: string, no
       typeof intent.feeSats !== "string" || !/^(0|[1-9][0-9]*)$/.test(intent.feeSats) ||
       !Number.isSafeInteger(intent.expiresAt) || (intent.expiresAt as number) <= nowSeconds ||
       typeof intent.sighashHex !== "string" || !HEX_32.test(intent.sighashHex) ||
-      !Array.isArray(intent.inputs) || intent.inputs.length === 0) {
+      !Array.isArray(intent.inputs) || intent.inputs.length === 0 || intent.inputs.length > 100 ||
+      intent.destinationScriptHex.length > 20_000) {
     throw new Error("Malformed or expired chain-native signing intent.");
   }
   for (const input of intent.inputs) {
     if (!HEX_32.test(input.txid) || !Number.isSafeInteger(input.vout) || input.vout < 0 ||
-        !/^(0|[1-9][0-9]*)$/.test(input.amountSats)) {
+        input.vout > 0xffff_ffff || !/^(0|[1-9][0-9]*)$/.test(input.amountSats)) {
       throw new Error("Malformed transaction input in signing intent.");
     }
   }
