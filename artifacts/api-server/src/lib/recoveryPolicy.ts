@@ -82,7 +82,11 @@ export function loadGuardianRegistry(): Map<string, ReturnType<typeof createPubl
 }
 
 export function canonicalJson(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (value === null || typeof value !== "object") {
+    const encoded = JSON.stringify(value);
+    if (encoded === undefined) throw new TypeError("Value is not canonical-JSON serializable.");
+    return encoded;
+  }
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
   const object = value as Record<string, unknown>;
   return `{${Object.keys(object).sort().map((key) =>
@@ -180,7 +184,7 @@ export function verifyProofVerifierReceipt(receipt: ProofVerifierReceipt, reques
   if (!pem) throw new Error("URUU_PROOF_VERIFIER_PUBLIC_KEY_PEM is required; proof verification is fail-closed.");
   const key = createPublicKey(pem);
   if (key.asymmetricKeyType !== "ed25519") throw new Error("Proof verifier public key must be Ed25519.");
-  const message = Buffer.from(`URUU-PROOF-VERIFIER-RECEIPT\\0${canonicalJson({
+  const message = Buffer.from(`URUU-PROOF-VERIFIER-RECEIPT\0${canonicalJson({
     schema: "uruu.proof-verifier-receipt.v1",
     requestId: receipt.requestId,
     proofHash: receipt.proofHash,
