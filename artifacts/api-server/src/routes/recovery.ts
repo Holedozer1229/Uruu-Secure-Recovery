@@ -494,8 +494,10 @@ router.get("/recovery/:requestId/operator-status", async (req, res): Promise<voi
   try {
     storedPolicyVersion = (JSON.parse(row.metadata ?? "{}") as Record<string, unknown>).policyVersion as string;
   } catch { /* Malformed stored policy revokes the authorization. */ }
+  const approvalRows = await getApprovals(row.requestId);
+  const approvalCountConsistent = approvalRows.length === row.approvalCount;
   const revoked = row.status !== "APPROVED" || Boolean(row.contestHash) ||
-    !row.proofHash || row.approvalCount < row.quorum ||
+    !approvalCountConsistent || !row.proofHash || row.approvalCount < row.quorum ||
     !row.timelockExpiresAt || row.timelockExpiresAt.getTime() > Date.now() ||
     !expiresAt || expiresAt <= Math.floor(Date.now() / 1000) ||
     !activePolicyVersion || storedPolicyVersion !== activePolicyVersion ||
