@@ -10,9 +10,6 @@ import {
   GuardianApproveBody,
   ContestRecoveryParams,
   ContestRecoveryBody,
-  FinalizeRecoveryParams,
-  VerifyProofParams,
-  VerifyProofBody,
   ListRecoveryRequestsQueryParams,
   ListEventsQueryParams,
 } from "@workspace/api-zod";
