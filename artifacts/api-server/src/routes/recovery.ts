@@ -264,8 +264,10 @@ router.get("/recovery/:requestId/guardian-challenge/:guardianId", async (req, re
   try {
     const policy = loadRecoveryPolicy();
     const registry = loadGuardianRegistry();
-    if (!registry.has(guardianId)) { res.status(403).json({ error: "Guardian is not trusted." }); return; }
+    if (row.quorum !== policy.quorum) throw new Error("Stored recovery quorum differs from active policy.");
     const metadataObject = JSON.parse(row.metadata) as Record<string, unknown>;
+    if (metadataObject.policyVersion !== policy.version) throw new Error("Stored policy version differs from active policy.");
+    if (!registry.has(guardianId)) { res.status(403).json({ error: "Guardian is not trusted." }); return; }
     const intent = validateChainSigningIntent(metadataObject.chainIntent, row.requestId);
     const message = buildGuardianApprovalMessage({
       policyVersion: policy.version, requestId: row.requestId, guardianId,
