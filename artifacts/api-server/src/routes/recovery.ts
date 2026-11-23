@@ -224,6 +224,9 @@ router.post("/recovery/:requestId/submit-proof", async (req, res): Promise<void>
   const [row] = await db.select().from(recoveryRequestsTable)
     .where(eq(recoveryRequestsTable.requestId, requestId));
   if (!row) { res.status(404).json({ error: "Recovery request not found" }); return; }
+  if (proofReceipt.newKeyCommit !== row.newKeyCommit) {
+    res.status(401).json({ error: "Proof receipt is not bound to this recovery new-key commitment." }); return;
+  }
   if (row.status !== "INITIATED") {
     res.status(409).json({ error: `Cannot submit proof in status ${row.status}` }); return;
   }
