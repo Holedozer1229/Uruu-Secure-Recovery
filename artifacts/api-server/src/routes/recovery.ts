@@ -420,6 +420,7 @@ router.get("/recovery/:requestId/signing-intent", async (req, res): Promise<void
     const policy = loadRecoveryPolicy();
     const registry = loadGuardianRegistry();
     if (row.quorum !== policy.quorum) throw new Error("Stored recovery quorum differs from active policy.");
+    if (!row.proofReceiptJson || !row.timelockExpiresAt) throw new Error("Proof receipt or timelock record missing.");
     const metadataObject = JSON.parse(row.metadata ?? "{}") as Record<string, unknown>;
     if (metadataObject.policyVersion !== policy.version) throw new Error("Stored policy version differs from active policy.");
     const chainIntent = validateChainSigningIntent(metadataObject.chainIntent, requestId);
@@ -432,6 +433,7 @@ router.get("/recovery/:requestId/signing-intent", async (req, res): Promise<void
       chainIntentHash: hashChainSigningIntent(chainIntent),
     });
     const approvals = await getApprovals(requestId);
+    if (approvals.length !== row.approvalCount) throw new Error("Stored approval counter does not match approval records.");
     const signatures = approvals.map((approval) => {
       const approvalMessage = { ...message, guardianId: approval.guardianId };
       if (!verifyGuardianApproval(approval.guardianId, approval.signature, approvalMessage, registry)) {
