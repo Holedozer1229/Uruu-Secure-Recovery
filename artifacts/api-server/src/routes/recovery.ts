@@ -320,6 +320,8 @@ router.post("/recovery/:requestId/guardian-approve", async (req, res): Promise<v
         policyVersion: policy.version, requestId, guardianId,
         newKeyCommit: row.newKeyCommit, policyCommit: row.policyCommit,
         requestedTimelock: row.requestedTimelock, proofHash: row.proofHash,
+        publicInputsHash: (JSON.parse(row.proofReceiptJson) as { publicInputsHash: string }).publicInputsHash,
+        timelockExpiresAt: row.timelockExpiresAt.toISOString(),
         chainIntentHash: intentHash,
       });
       if (!verifyGuardianApproval(guardianId, signature, message, registry)) {
