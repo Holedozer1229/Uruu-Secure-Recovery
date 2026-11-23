@@ -19,7 +19,9 @@ export const recoveryRequestsTable = pgTable("recovery_requests", {
   metadata: text("metadata"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
-});
+}, (table) => [
+  uniqueIndex("recovery_requests_proof_hash_unique").on(table.proofHash),
+]);
 
 export const guardianApprovalsTable = pgTable("guardian_approvals", {
   id: serial("id").primaryKey(),
