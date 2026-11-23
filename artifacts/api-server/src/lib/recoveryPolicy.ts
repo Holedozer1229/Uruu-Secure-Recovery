@@ -162,3 +162,47 @@ export function evaluateRecoveryPolicy(input: {
   if ((input.now ?? new Date()) < input.timelockExpiresAt) return { eligible: false, reason: "timelock has not elapsed" };
   return { eligible: true, reason: "policy checks passed; chain-native intent still requires operator verification" };
 }
+
+export interface ProofVerifierReceipt {
+  proofHash: string;
+  publicInputsHash: string;
+  verifierSig: string;
+  timestamp: string;
+  requestId: string;
+}
+
+export function verifyProofVerifierReceipt(receipt: ProofVerifierReceipt, requestId: string): boolean {
+  if (receipt.requestId !== requestId || !HEX_32.test(receipt.proofHash) ||
+      !HEX_32.test(receipt.publicInputsHash) || !HEX_SIGNATURE.test(receipt.verifierSig)) return false;
+  const timestampMs = Date.parse(receipt.timestamp);
+  if (!Number.isSafeInteger(timestampMs) || Math.abs(Date.now() - timestampMs) > 5 * 60 * 1000) return false;
+  const pem = process.env.URUU_PROOF_VERIFIER_PUBLIC_KEY_PEM;
+  if (!pem) throw new Error("URUU_PROOF_VERIFIER_PUBLIC_KEY_PEM is required; proof verification is fail-closed.");
+  const key = createPublicKey(pem);
+  if (key.asymmetricKeyType !== "ed25519") throw new Error("Proof verifier public key must be Ed25519.");
+  const message = Buffer.from(`URUU-PROOF-VERIFIER-RECEIPT\\0${canonicalJson({
+    schema: "uruu.proof-verifier-receipt.v1",
+    requestId: receipt.requestId,
+    proofHash: receipt.proofHash,
+    publicInputsHash: receipt.publicInputsHash,
+    timestamp: new Date(timestampMs).toISOString(),
+  })}`, "utf8");
+  try { return verifySignature(null, message, key, Buffer.from(receipt.verifierSig, "hex")); }
+  catch { return false; }
+}
+
+export function buildGuardianApprovalMessage(input: {
+  policyVersion: string;
+  requestId: string;
+  guardianId: string;
+  newKeyCommit: string;
+  policyCommit: string;
+  requestedTimelock: number;
+  proofHash: string;
+  chainIntentHash: string;
+}): GuardianApprovalMessage {
+  if (!HEX_32.test(input.proofHash) || !HEX_32.test(input.chainIntentHash)) {
+    throw new Error("Guardian approval requires committed proof and chain intent hashes.");
+  }
+  return { schema: GUARDIAN_APPROVAL_SCHEMA, ...input };
+}
