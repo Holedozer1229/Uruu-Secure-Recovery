@@ -27,12 +27,14 @@ Proof generation/verification is external. The old synthetic proof endpoint now 
   "requestId": "<request id>",
   "proofHash": "<64 lowercase hex SHA-256>",
   "publicInputsHash": "<64 lowercase hex SHA-256>",
+  "accountId": "<account identifier or null>",
+  "newKeyCommit": "<exact newKeyCommit from the recovery request>",
   "timestamp": "<UTC ISO-8601 timestamp>"
 }
 ```
 
 Signature bytes are Ed25519 over UTF-8 bytes of:
-`URUU-PROOF-VERIFIER-RECEIPT\0` followed by compact JSON with lexicographically sorted keys. Encode the 64-byte signature as 128 lowercase hex characters in `verifierSig`. The API enforces a five-minute receipt age window, request binding, and proof-hash replay rejection. A signature proves that the configured verifier issued the receipt; it does not replace auditing the verifier implementation or circuit.
+`URUU-PROOF-VERIFIER-RECEIPT\0` followed by compact JSON with lexicographically sorted keys. Encode the 64-byte signature as 128 lowercase hex characters in `verifierSig`. The API enforces a five-minute receipt age window, request binding, exact new-key commitment binding, and proof-hash replay rejection. A signature proves that the configured verifier issued the receipt; it does not replace auditing the verifier implementation or circuit.
 
 ## Recovery request chain intent
 
