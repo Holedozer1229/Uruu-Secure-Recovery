@@ -1,4 +1,4 @@
-import { createHash, createPublicKey, verify as verifySignature } from "node:crypto";
+import { createHash, createPublicKey, timingSafeEqual, verify as verifySignature } from "node:crypto";
 
 export const GUARDIAN_APPROVAL_SCHEMA = "uruu.guardian-approval.v1" as const;
 export const SIGNING_INTENT_SCHEMA = "uruu.frostgate-signing-intent.v1" as const;
@@ -234,4 +234,17 @@ export function buildGuardianApprovalMessage(input: {
     throw new Error("Guardian approval requires committed proof and chain intent hashes.");
   }
   return { schema: GUARDIAN_APPROVAL_SCHEMA, ...input };
+}
+
+export function verifyFrostOperatorToken(operatorId: string, token: string): boolean {
+  const configured = parseJsonEnv<Record<string, string>>("URUU_FROST_OPERATOR_TOKENS_JSON");
+  const entries = Object.entries(configured);
+  if (entries.length < 3 || new Set(entries.map(([, value]) => value)).size !== entries.length) {
+    throw new Error("FROST operator registry requires at least three unique operator tokens.");
+  }
+  const expected = configured[operatorId];
+  if (!expected || expected.length < 32 || token.length < 32) return false;
+  const expectedBytes = Buffer.from(expected, "utf8");
+  const suppliedBytes = Buffer.from(token, "utf8");
+  return expectedBytes.length === suppliedBytes.length && timingSafeEqual(expectedBytes, suppliedBytes);
 }
