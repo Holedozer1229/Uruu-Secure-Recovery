@@ -7,3 +7,4 @@ HAVING COUNT(*) > 1;
 
 CREATE UNIQUE INDEX IF NOT EXISTS guardian_approvals_request_guardian_unique
 ON guardian_approvals (request_id, guardian_id);
+\nCREATE UNIQUE INDEX IF NOT EXISTS recovery_requests_proof_hash_unique\nON recovery_requests (proof_hash);\n
