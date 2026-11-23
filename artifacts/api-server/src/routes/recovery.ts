@@ -141,7 +141,7 @@ router.post("/recovery", async (req, res): Promise<void> => {
       { ...(metadataObject.chainIntent as Record<string, unknown>), requestId },
       requestId,
     );
-    const storedMetadata = canonicalJson({ ...metadataObject, chainIntent });
+    const storedMetadata = canonicalJson({ ...metadataObject, chainIntent, policyVersion: policy.version, policyQuorum: policy.quorum });
 
     const [row] = await db.insert(recoveryRequestsTable).values({
       requestId,
@@ -307,8 +307,9 @@ router.post("/recovery/:requestId/guardian-approve", async (req, res): Promise<v
       if (!row) throw new Error("NOT_FOUND: Recovery request not found.");
       if (row.status !== "PROOF_SUBMITTED") throw new Error(`CONFLICT: Cannot approve in status ${row.status}.`);
       if (!row.proofHash || !row.metadata) throw new Error("CONFLICT: Proof or chain intent commitment is missing.");
-
+      if (row.quorum !== policy.quorum) throw new Error("CONFLICT: Stored quorum differs from active policy.");
       const metadataObject = JSON.parse(row.metadata) as Record<string, unknown>;
+      if (metadataObject.policyVersion !== policy.version) throw new Error("CONFLICT: Stored policy version differs from active policy.");
       const chainIntent = validateChainSigningIntent(metadataObject.chainIntent, requestId);
       const intentHash = hashChainSigningIntent(chainIntent);
       const message = buildGuardianApprovalMessage({
@@ -393,7 +394,9 @@ router.get("/recovery/:requestId/signing-intent", async (req, res): Promise<void
     }
     const policy = loadRecoveryPolicy();
     const registry = loadGuardianRegistry();
+    if (row.quorum !== policy.quorum) throw new Error("Stored recovery quorum differs from active policy.");
     const metadataObject = JSON.parse(row.metadata ?? "{}") as Record<string, unknown>;
+    if (metadataObject.policyVersion !== policy.version) throw new Error("Stored policy version differs from active policy.");
     const chainIntent = validateChainSigningIntent(metadataObject.chainIntent, requestId);
     const message = buildGuardianApprovalMessage({
       policyVersion: policy.version, requestId, guardianId: "",
