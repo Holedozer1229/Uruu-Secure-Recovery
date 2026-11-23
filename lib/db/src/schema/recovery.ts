@@ -1,4 +1,4 @@
-import { pgTable, text, integer, timestamp, serial } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, timestamp, serial, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -28,7 +28,9 @@ export const guardianApprovalsTable = pgTable("guardian_approvals", {
   signature: text("signature").notNull(),
   approvedAt: timestamp("approved_at", { withTimezone: true }).notNull().defaultNow(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [
+  uniqueIndex("guardian_approvals_request_guardian_unique").on(table.requestId, table.guardianId),
+]);
 
 export const eventsTable = pgTable("events", {
   id: serial("id").primaryKey(),
