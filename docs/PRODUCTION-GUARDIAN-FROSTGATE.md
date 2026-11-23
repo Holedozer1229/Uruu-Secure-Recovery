@@ -13,7 +13,7 @@ URUU_PROOF_VERIFIER_PUBLIC_KEY_PEM='-----BEGIN PUBLIC KEY-----...'
 URUU_FROST_OPERATOR_TOKENS_JSON='{"operator-1":"<unique random 32+ character token>","operator-2":"<different unique token>","operator-3":"<different unique token>"}'
 ```
 
-All guardian and proof-verifier keys must be Ed25519 public keys. The API refuses to initiate recovery if policy or the trusted registry is absent/invalid. The configured quorum is persisted on each request; the old hard-coded 2-of-N behavior is removed. Operator tokens must be unique, private, at least 32 characters, and provisioned one per independent operator.
+All guardian and proof-verifier keys must be Ed25519 public keys. The API refuses to initiate recovery if policy or the trusted registry is absent/invalid. The configured quorum is persisted on each request; the old hard-coded 2-of-N behavior is removed. Exactly five operator tokens must be configured; they must be unique, private, at least 32 characters, and provisioned one per independent operator.
 
 Before enabling this branch, provision unique keys with independent guardians. Do not generate or store guardian private keys on the URUU server.
 
