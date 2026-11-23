@@ -10,7 +10,7 @@ Set these only in the private API-server runtime (never frontend variables):
 URUU_RECOVERY_POLICY_JSON='{"version":"uruu-recovery-v1","quorum":3,"minimumTimelockSeconds":86400,"maximumTimelockSeconds":2592000}'
 URUU_GUARDIAN_PUBLIC_KEYS_JSON='{"guardian-1":"-----BEGIN PUBLIC KEY-----...","guardian-2":"-----BEGIN PUBLIC KEY-----...","guardian-3":"-----BEGIN PUBLIC KEY-----...","guardian-4":"-----BEGIN PUBLIC KEY-----...","guardian-5":"-----BEGIN PUBLIC KEY-----..."}'
 URUU_PROOF_VERIFIER_PUBLIC_KEY_PEM='-----BEGIN PUBLIC KEY-----...'
-URUU_FROST_OPERATOR_TOKENS_JSON='{"operator-1":"<unique random 32+ character token>","operator-2":"<different unique token>","operator-3":"<different unique token>"}'
+URUU_FROST_OPERATOR_TOKENS_JSON='{"operator-1":"<unique random 32+ character token>","operator-2":"<different unique token>","operator-3":"<different unique token>","operator-4":"<different unique token>","operator-5":"<different unique token>"}'
 ```
 
 All guardian and proof-verifier keys must be Ed25519 public keys. The API refuses to initiate recovery if policy or the trusted registry is absent/invalid. The configured quorum is persisted on each request; the old hard-coded 2-of-N behavior is removed. Exactly five operator tokens must be configured; they must be unique, private, at least 32 characters, and provisioned one per independent operator.
