@@ -123,7 +123,27 @@ export function validateChainSigningIntent(value: unknown, requestId: string, no
   const fee = BigInt(intent.feeSats);
   const total = intent.inputs.reduce((sum, input) => sum + BigInt(input.amountSats), 0n);
   if (amount + fee > total) throw new Error("Signing intent spends more than its committed inputs.");
-  return intent as ChainSigningIntent;
+  if ((intent.expiresAt as number) > nowSeconds + 900) {
+    throw new Error("Signing intent expiry must be within the 15-minute authorization window.");
+  }
+  // Return only schema fields so unknown metadata cannot create cross-language
+  // digest differences between the TypeScript issuer and Rust operators.
+  return {
+    schema: SIGNING_INTENT_SCHEMA,
+    chainId: intent.chainId!,
+    networkMagic: intent.networkMagic!,
+    genesisHash: intent.genesisHash!,
+    operation: "RECOVERY",
+    requestId,
+    inputs: intent.inputs.map((input) => ({
+      txid: input.txid, vout: input.vout, amountSats: input.amountSats,
+    })),
+    destinationScriptHex: intent.destinationScriptHex!,
+    amountSats: intent.amountSats!,
+    feeSats: intent.feeSats!,
+    expiresAt: intent.expiresAt as number,
+    sighashHex: intent.sighashHex!,
+  };
 }
 
 export function hashChainSigningIntent(intent: ChainSigningIntent): string {
