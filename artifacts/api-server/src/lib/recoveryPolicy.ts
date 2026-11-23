@@ -244,8 +244,8 @@ export function buildGuardianApprovalMessage(input: {
 export function verifyFrostOperatorToken(operatorId: string, token: string): boolean {
   const configured = parseJsonEnv<Record<string, string>>("URUU_FROST_OPERATOR_TOKENS_JSON");
   const entries = Object.entries(configured);
-  if (entries.length < 3 || new Set(entries.map(([, value]) => value)).size !== entries.length) {
-    throw new Error("FROST operator registry requires at least three unique operator tokens.");
+  if (entries.length !== 5 || new Set(entries.map(([, value]) => value)).size !== entries.length) {
+    throw new Error("FROST operator registry requires exactly five unique operator tokens.");
   }
   const expected = configured[operatorId];
   if (!expected || expected.length < 32 || token.length < 32) return false;
