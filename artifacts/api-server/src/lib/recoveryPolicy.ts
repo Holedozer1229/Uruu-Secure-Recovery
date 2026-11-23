@@ -43,6 +43,8 @@ export interface GuardianApprovalMessage {
   policyCommit: string;
   requestedTimelock: number;
   proofHash: string;
+  publicInputsHash: string;
+  timelockExpiresAt: string;
   chainIntentHash: string;
 }
 
@@ -224,9 +226,11 @@ export function buildGuardianApprovalMessage(input: {
   policyCommit: string;
   requestedTimelock: number;
   proofHash: string;
+  publicInputsHash: string;
+  timelockExpiresAt: string;
   chainIntentHash: string;
 }): GuardianApprovalMessage {
-  if (!HEX_32.test(input.proofHash) || !HEX_32.test(input.chainIntentHash)) {
+  if (!HEX_32.test(input.proofHash) || !HEX_32.test(input.publicInputsHash) || !HEX_32.test(input.chainIntentHash) || !Number.isFinite(Date.parse(input.timelockExpiresAt))) {
     throw new Error("Guardian approval requires committed proof and chain intent hashes.");
   }
   return { schema: GUARDIAN_APPROVAL_SCHEMA, ...input };
