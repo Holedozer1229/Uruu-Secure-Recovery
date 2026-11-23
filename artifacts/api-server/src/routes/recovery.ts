@@ -16,17 +16,18 @@ import {
   ListRecoveryRequestsQueryParams,
   ListEventsQueryParams,
 } from "@workspace/api-zod";
+import { generateRequestId, generateEventId } from "../lib/crypto.js";
 import {
-  sha256,
-  mockVerifierSign,
-  mockVerifierVerify,
-  mockVerify,
-  generateSyntheticProof,
-  generateRequestId,
-  generateEventId,
-  computeTranscriptHash,
-  serializePublicInputs,
-} from "../lib/crypto.js";
+  buildGuardianApprovalMessage,
+  canonicalJson,
+  evaluateRecoveryPolicy,
+  hashChainSigningIntent,
+  loadGuardianRegistry,
+  loadRecoveryPolicy,
+  validateChainSigningIntent,
+  verifyGuardianApproval,
+  verifyProofVerifierReceipt,
+} from "../lib/recoveryPolicy.js";
 
 const router: IRouter = Router();
 
@@ -127,32 +128,44 @@ router.post("/recovery", async (req, res): Promise<void> => {
     return;
   }
 
-  const { newKeyCommit, policyCommit, requestedTimelock, metadata } = parsed.data;
-  const requestId = generateRequestId(newKeyCommit, policyCommit);
+  try {
+    const policy = loadRecoveryPolicy();
+    const guardians = loadGuardianRegistry();
+    if (guardians.size < policy.quorum) throw new Error("Guardian registry does not satisfy quorum.");
+    const { newKeyCommit, policyCommit, requestedTimelock, metadata } = parsed.data;
+    if (requestedTimelock < policy.minimumTimelockSeconds || requestedTimelock > policy.maximumTimelockSeconds) {
+      res.status(400).json({ error: "Requested timelock is outside the configured recovery policy." });
+      return;
+    }
+    const requestId = generateRequestId(newKeyCommit, policyCommit);
+    const metadataObject = metadata ? JSON.parse(metadata) as Record<string, unknown> : {};
+    const chainIntent = validateChainSigningIntent(
+      { ...(metadataObject.chainIntent as Record<string, unknown>), requestId },
+      requestId,
+    );
+    const storedMetadata = canonicalJson({ ...metadataObject, chainIntent });
 
-  const [row] = await db
-    .insert(recoveryRequestsTable)
-    .values({
+    const [row] = await db.insert(recoveryRequestsTable).values({
       requestId,
       status: "INITIATED",
       newKeyCommit,
       policyCommit,
       requestedTimelock,
       approvalCount: 0,
-      quorum: 2,
-      metadata: metadata ?? null,
-    })
-    .returning();
+      quorum: policy.quorum,
+      metadata: storedMetadata,
+    }).returning();
 
-  await appendEvent("RecoveryInitiated", requestId, {
-    requestId,
-    newKeyCommit,
-    policyCommit,
-    requestedTimelock,
-  });
-
-  const approvals = await getApprovals(requestId);
-  res.status(201).json(formatRequest(row!, approvals));
+    await appendEvent("RecoveryInitiated", requestId, {
+      requestId, newKeyCommit, policyCommit, requestedTimelock,
+      policyVersion: policy.version, quorum: policy.quorum,
+      chainIntentHash: hashChainSigningIntent(chainIntent),
+    });
+    const approvals = await getApprovals(requestId);
+    res.status(201).json(formatRequest(row!, approvals));
+  } catch (error) {
+    res.status(503).json({ error: error instanceof Error ? error.message : "Recovery policy configuration failed closed." });
+  }
 });
 
 // ─── Get recovery request ──────────────────────────────────────────────────
@@ -178,199 +191,212 @@ router.get("/recovery/:requestId", async (req, res): Promise<void> => {
   res.json(formatRequest(row, approvals));
 });
 
-// ─── Mock ZK proof verifier ────────────────────────────────────────────────
-
-router.post("/recovery/:requestId/proof-verify", async (req, res): Promise<void> => {
-  const params = VerifyProofParams.safeParse(req.params);
-  if (!params.success) {
-    res.status(400).json({ error: params.error.message });
-    return;
-  }
-
-  const body = VerifyProofBody.safeParse(req.body);
-  if (!body.success) {
-    res.status(400).json({ error: body.error.message });
-    return;
-  }
-
-  const { proofBlob, publicInputs } = body.data;
-  const ts = Date.now();
-
-  const publicInputsHash = computeTranscriptHash({
-    accountId: publicInputs.accountId,
-    requestId: publicInputs.requestId,
-    newKeyCommit: publicInputs.newKeyCommit,
-    policyCommit: publicInputs.policyCommit,
-    proofNonce: publicInputs.proofNonce,
-    timestamp: ts,
+// ─── External proof verifier boundary ─────────────────────────────────────
+// This API never fabricates proofs. A separately operated, configured proof
+// verifier must issue the Ed25519-signed receipt accepted by submit-proof.
+router.post("/recovery/:requestId/proof-verify", async (_req, res): Promise<void> => {
+  res.status(503).json({
+    error: "Proof generation/verification is external. Submit a signed receipt from the configured Ed25519 proof verifier.",
   });
-
-  const proofHash = sha256(Buffer.from(proofBlob, "base64"));
-
-  const isValid = mockVerify(proofBlob, publicInputsHash);
-  if (!isValid) {
-    res.status(400).json({ error: "Proof verification failed (invalid proofBlob)" });
-    return;
-  }
-
-  // Canonical sign input: proofHash || publicInputsHash || requestId || timestamp
-  const signInput = `${proofHash}:${publicInputsHash}:${params.data.requestId}:${ts}`;
-  const verifierSig = mockVerifierSign(signInput);
-
-  const receipt = {
-    proofHash,
-    publicInputsHash,
-    verifierSig,
-    timestamp: new Date(ts).toISOString(),
-    requestId: params.data.requestId,
-    accountId: publicInputs.accountId,
-    newKeyCommit: publicInputs.newKeyCommit,
-  };
-
-  res.json(receipt);
 });
 
 // ─── Submit proof ──────────────────────────────────────────────────────────
 
 router.post("/recovery/:requestId/submit-proof", async (req, res): Promise<void> => {
   const params = SubmitProofParams.safeParse(req.params);
-  if (!params.success) {
-    res.status(400).json({ error: params.error.message });
-    return;
-  }
-
+  if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
   const body = SubmitProofBody.safeParse(req.body);
-  if (!body.success) {
-    res.status(400).json({ error: body.error.message });
-    return;
-  }
+  if (!body.success) { res.status(400).json({ error: body.error.message }); return; }
 
   const { requestId } = params.data;
   const { proofReceipt } = body.data;
-
-  const [row] = await db
-    .select()
-    .from(recoveryRequestsTable)
+  const [row] = await db.select().from(recoveryRequestsTable)
     .where(eq(recoveryRequestsTable.requestId, requestId));
-
-  if (!row) {
-    res.status(404).json({ error: "Recovery request not found" });
-    return;
-  }
-
+  if (!row) { res.status(404).json({ error: "Recovery request not found" }); return; }
   if (row.status !== "INITIATED") {
-    res.status(400).json({ error: `Cannot submit proof in status ${row.status}` });
-    return;
+    res.status(409).json({ error: `Cannot submit proof in status ${row.status}` }); return;
   }
 
-  // Verify the verifier signature
-  const { proofHash, publicInputsHash, verifierSig, timestamp } = proofReceipt;
-  const tsMs = new Date(timestamp).getTime();
-  const signInput = `${proofHash}:${publicInputsHash}:${requestId}:${tsMs}`;
-  const isValid = mockVerifierVerify(signInput, verifierSig);
-
-  if (!isValid) {
-    res.status(400).json({ error: "Invalid verifier signature on ProofReceipt" });
+  let valid = false;
+  try {
+    valid = verifyProofVerifierReceipt(proofReceipt, requestId);
+  } catch (error) {
+    res.status(503).json({ error: error instanceof Error ? error.message : "Proof verifier unavailable." });
     return;
   }
+  if (!valid) { res.status(401).json({ error: "Invalid, expired, or untrusted proof-verifier receipt." }); return; }
 
-  // Check proof hash not reused
-  const [existingProof] = await db
-    .select()
-    .from(recoveryRequestsTable)
-    .where(eq(recoveryRequestsTable.proofHash, proofHash));
+  const [existingProof] = await db.select().from(recoveryRequestsTable)
+    .where(eq(recoveryRequestsTable.proofHash, proofReceipt.proofHash));
+  if (existingProof) { res.status(409).json({ error: "Proof hash already used; replay rejected." }); return; }
 
-  if (existingProof) {
-    res.status(409).json({ error: "Proof hash already used — replay attack rejected" });
-    return;
-  }
-
-  // Compute timelock expiry
   const timelockExpiresAt = new Date(Date.now() + row.requestedTimelock * 1000);
+  const [updated] = await db.update(recoveryRequestsTable).set({
+    status: "PROOF_SUBMITTED",
+    proofHash: proofReceipt.proofHash,
+    proofReceiptJson: JSON.stringify(proofReceipt),
+    timelockExpiresAt,
+  }).where(and(
+    eq(recoveryRequestsTable.requestId, requestId),
+    eq(recoveryRequestsTable.status, "INITIATED"),
+  )).returning();
+  if (!updated) { res.status(409).json({ error: "Recovery state changed; reload and retry." }); return; }
 
-  const [updated] = await db
-    .update(recoveryRequestsTable)
-    .set({
-      status: "PROOF_SUBMITTED",
-      proofHash,
-      proofReceiptJson: JSON.stringify(proofReceipt),
-      timelockExpiresAt,
-    })
-    .where(eq(recoveryRequestsTable.requestId, requestId))
-    .returning();
-
-  await appendEvent("ProofSubmitted", requestId, { proofHash, publicInputsHash });
-
+  await appendEvent("ProofSubmitted", requestId, {
+    proofHash: proofReceipt.proofHash,
+    publicInputsHash: proofReceipt.publicInputsHash,
+    verifier: "ed25519-external",
+  });
   const approvals = await getApprovals(requestId);
-  res.json(formatRequest(updated!, approvals));
+  res.json(formatRequest(updated, approvals));
 });
 
 // ─── Guardian approve ──────────────────────────────────────────────────────
 
 router.post("/recovery/:requestId/guardian-approve", async (req, res): Promise<void> => {
   const params = GuardianApproveParams.safeParse(req.params);
-  if (!params.success) {
-    res.status(400).json({ error: params.error.message });
-    return;
-  }
-
+  if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
   const body = GuardianApproveBody.safeParse(req.body);
-  if (!body.success) {
-    res.status(400).json({ error: body.error.message });
-    return;
-  }
+  if (!body.success) { res.status(400).json({ error: body.error.message }); return; }
 
   const { requestId } = params.data;
   const { guardianId, signature } = body.data;
-
-  const [row] = await db
-    .select()
-    .from(recoveryRequestsTable)
+  const [row] = await db.select().from(recoveryRequestsTable)
     .where(eq(recoveryRequestsTable.requestId, requestId));
-
-  if (!row) {
-    res.status(404).json({ error: "Recovery request not found" });
-    return;
+  if (!row) { res.status(404).json({ error: "Recovery request not found" }); return; }
+  if (row.status !== "PROOF_SUBMITTED") {
+    res.status(409).json({ error: `Cannot approve in status ${row.status}` }); return;
+  }
+  if (!row.proofHash || !row.metadata) {
+    res.status(409).json({ error: "Proof or chain intent commitment is missing." }); return;
   }
 
-  if (!["PROOF_SUBMITTED", "APPROVED"].includes(row.status)) {
-    res.status(400).json({ error: `Cannot approve in status ${row.status}` });
-    return;
+  try {
+    const policy = loadRecoveryPolicy();
+    const registry = loadGuardianRegistry();
+    const metadataObject = JSON.parse(row.metadata) as Record<string, unknown>;
+    const chainIntent = validateChainSigningIntent(metadataObject.chainIntent, requestId);
+    const message = buildGuardianApprovalMessage({
+      policyVersion: policy.version,
+      requestId,
+      guardianId,
+      newKeyCommit: row.newKeyCommit,
+      policyCommit: row.policyCommit,
+      requestedTimelock: row.requestedTimelock,
+      proofHash: row.proofHash,
+      chainIntentHash: hashChainSigningIntent(chainIntent),
+    });
+    if (!registry.has(guardianId)) {
+      res.status(403).json({ error: "Guardian is not in the configured trusted registry." }); return;
+    }
+    if (!verifyGuardianApproval(guardianId, signature, message, registry)) {
+      res.status(401).json({ error: "Guardian Ed25519 approval signature is invalid." }); return;
+    }
+
+    const existingApprovals = await getApprovals(requestId);
+    if (existingApprovals.some((approval) => approval.guardianId === guardianId)) {
+      res.status(409).json({ error: "Guardian has already approved this recovery." }); return;
+    }
+    if (existingApprovals.some((approval) => {
+      try {
+        const signedMessage = buildGuardianApprovalMessage({
+          policyVersion: policy.version, requestId, guardianId: approval.guardianId,
+          newKeyCommit: row.newKeyCommit, policyCommit: row.policyCommit,
+          requestedTimelock: row.requestedTimelock, proofHash: row.proofHash!,
+          chainIntentHash: hashChainSigningIntent(chainIntent),
+        });
+        return !verifyGuardianApproval(approval.guardianId, approval.signature, signedMessage, registry);
+      } catch { return true; }
+    })) {
+      res.status(409).json({ error: "Stored guardian approval failed re-verification; recovery is frozen." }); return;
+    }
+
+    // The DB unique index is the replay/race guard; the counter increment is
+    // atomic so concurrent distinct guardians cannot lose an approval.
+    await db.insert(guardianApprovalsTable).values({
+      requestId, guardianId, signature, approvedAt: new Date(),
+    });
+    const [updated] = await db.update(recoveryRequestsTable).set({
+      approvalCount: sql`${recoveryRequestsTable.approvalCount} + 1`,
+      status: sql`CASE WHEN ${recoveryRequestsTable.approvalCount} + 1 >= ${recoveryRequestsTable.quorum} THEN 'APPROVED' ELSE ${recoveryRequestsTable.status} END`,
+    }).where(and(
+      eq(recoveryRequestsTable.requestId, requestId),
+      eq(recoveryRequestsTable.status, "PROOF_SUBMITTED"),
+    )).returning();
+    if (!updated) {
+      res.status(409).json({ error: "Recovery state changed while recording approval; inspect audit log." }); return;
+    }
+    await appendEvent("GuardianApproved", requestId, {
+      guardianId, approvalCount: updated.approvalCount, quorum: updated.quorum,
+      policyVersion: policy.version, chainIntentHash: hashChainSigningIntent(chainIntent),
+    });
+    const approvals = await getApprovals(requestId);
+    res.json(formatRequest(updated, approvals));
+  } catch (error) {
+    res.status(503).json({ error: error instanceof Error ? error.message : "Guardian policy unavailable; request denied." });
   }
+});
 
-  // Check guardian hasn't already approved
-  const existingApprovals = await getApprovals(requestId);
-  const alreadyApproved = existingApprovals.some((a) => a.guardianId === guardianId);
-  if (alreadyApproved) {
-    res.status(400).json({ error: `Guardian ${guardianId} has already approved` });
-    return;
+// Independent FROST operators fetch this certificate and verify it locally.
+// This endpoint does not contact signers, create signature shares, or broadcast.
+router.get("/recovery/:requestId/signing-intent", async (req, res): Promise<void> => {
+  const params = GetRecoveryRequestParams.safeParse(req.params);
+  if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
+  const { requestId } = params.data;
+  const [row] = await db.select().from(recoveryRequestsTable)
+    .where(eq(recoveryRequestsTable.requestId, requestId));
+  if (!row) { res.status(404).json({ error: "Recovery request not found" }); return; }
+
+  try {
+    const eligibility = evaluateRecoveryPolicy({
+      status: row.status, approvalCount: row.approvalCount, quorum: row.quorum,
+      timelockExpiresAt: row.timelockExpiresAt, contestHash: row.contestHash,
+      proofHash: row.proofHash,
+    });
+    if (!eligibility.eligible) {
+      res.status(409).json({ error: eligibility.reason }); return;
+    }
+    const policy = loadRecoveryPolicy();
+    const registry = loadGuardianRegistry();
+    const metadataObject = JSON.parse(row.metadata ?? "{}") as Record<string, unknown>;
+    const chainIntent = validateChainSigningIntent(metadataObject.chainIntent, requestId);
+    const message = buildGuardianApprovalMessage({
+      policyVersion: policy.version, requestId, guardianId: "",
+      newKeyCommit: row.newKeyCommit, policyCommit: row.policyCommit,
+      requestedTimelock: row.requestedTimelock, proofHash: row.proofHash!,
+      chainIntentHash: hashChainSigningIntent(chainIntent),
+    });
+    const approvals = await getApprovals(requestId);
+    const signatures = approvals.map((approval) => {
+      const approvalMessage = { ...message, guardianId: approval.guardianId };
+      if (!verifyGuardianApproval(approval.guardianId, approval.signature, approvalMessage, registry)) {
+        throw new Error(`Stored approval from ${approval.guardianId} no longer verifies.`);
+      }
+      return { guardianId: approval.guardianId, signature: approval.signature };
+    });
+    if (new Set(signatures.map((item) => item.guardianId)).size < policy.quorum) {
+      res.status(409).json({ error: "Independently verified guardian quorum is not met." }); return;
+    }
+    res.json({
+      schema: "uruu.frostgate-authorization.v1",
+      policy: { version: policy.version, quorum: policy.quorum, guardianCount: registry.size },
+      chainIntent,
+      chainIntentHash: hashChainSigningIntent(chainIntent),
+      sighashHex: chainIntent.sighashHex,
+      approvalMessageSchema: message.schema,
+      approvalMessage: {
+        schema: message.schema, policyVersion: message.policyVersion, requestId,
+        newKeyCommit: message.newKeyCommit, policyCommit: message.policyCommit,
+        requestedTimelock: message.requestedTimelock, proofHash: message.proofHash,
+        chainIntentHash: message.chainIntentHash,
+      },
+      guardianSignatures: signatures,
+      expiresAt: chainIntent.expiresAt,
+      status: "READY_FOR_INDEPENDENT_OPERATOR_VERIFICATION",
+    });
+  } catch (error) {
+    res.status(503).json({ error: error instanceof Error ? error.message : "Signing authorization unavailable." });
   }
-
-  await db.insert(guardianApprovalsTable).values({
-    requestId,
-    guardianId,
-    signature,
-    approvedAt: new Date(),
-  });
-
-  const newApprovalCount = row.approvalCount + 1;
-  const newStatus = newApprovalCount >= row.quorum ? "APPROVED" : row.status;
-
-  const [updated] = await db
-    .update(recoveryRequestsTable)
-    .set({ approvalCount: newApprovalCount, status: newStatus })
-    .where(eq(recoveryRequestsTable.requestId, requestId))
-    .returning();
-
-  await appendEvent("GuardianApproved", requestId, {
-    guardianId,
-    approvalCount: newApprovalCount,
-    quorum: row.quorum,
-    newStatus,
-  });
-
-  const approvals = await getApprovals(requestId);
-  res.json(formatRequest(updated!, approvals));
 });
 
 // ─── Contest ───────────────────────────────────────────────────────────────
@@ -420,54 +446,10 @@ router.post("/recovery/:requestId/contest", async (req, res): Promise<void> => {
 
 // ─── Finalize ──────────────────────────────────────────────────────────────
 
-router.post("/recovery/:requestId/finalize", async (req, res): Promise<void> => {
-  const params = FinalizeRecoveryParams.safeParse(req.params);
-  if (!params.success) {
-    res.status(400).json({ error: params.error.message });
-    return;
-  }
-
-  const { requestId } = params.data;
-
-  const [row] = await db
-    .select()
-    .from(recoveryRequestsTable)
-    .where(eq(recoveryRequestsTable.requestId, requestId));
-
-  if (!row) {
-    res.status(404).json({ error: "Recovery request not found" });
-    return;
-  }
-
-  if (row.status !== "APPROVED") {
-    res.status(400).json({ error: `Recovery must be APPROVED before finalizing (current: ${row.status})` });
-    return;
-  }
-
-  if (row.approvalCount < row.quorum) {
-    res.status(400).json({ error: `Quorum not met: ${row.approvalCount}/${row.quorum} approvals` });
-    return;
-  }
-
-  if (row.timelockExpiresAt && new Date() < row.timelockExpiresAt) {
-    const remaining = Math.ceil((row.timelockExpiresAt.getTime() - Date.now()) / 1000);
-    res.status(400).json({ error: `Timelock not elapsed — ${remaining}s remaining` });
-    return;
-  }
-
-  const [updated] = await db
-    .update(recoveryRequestsTable)
-    .set({ status: "FINALIZED", finalizedAt: new Date() })
-    .where(eq(recoveryRequestsTable.requestId, requestId))
-    .returning();
-
-  await appendEvent("RecoveryFinalized", requestId, {
-    newKeyCommit: row.newKeyCommit,
-    finalizedAt: updated!.finalizedAt!.toISOString(),
+router.post("/recovery/:requestId/finalize", async (_req, res): Promise<void> => {
+  res.status(409).json({
+    error: "Finalization is disabled. Guardian approval only creates an authorization certificate; independent FROST operators and EXCAL-native transaction confirmation are required before FINALIZED.",
   });
-
-  const approvals = await getApprovals(requestId);
-  res.json(formatRequest(updated!, approvals));
 });
 
 // ─── Events ────────────────────────────────────────────────────────────────
