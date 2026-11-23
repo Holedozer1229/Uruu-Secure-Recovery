@@ -396,6 +396,38 @@ router.get("/recovery/:requestId/signing-intent", async (req, res): Promise<void
   }
 });
 
+// Operators re-check this endpoint immediately before emitting each share.
+// Production deployment must protect it with mutual TLS/operator authentication.
+router.get("/recovery/:requestId/operator-status", async (req, res): Promise<void> => {
+  const params = GetRecoveryRequestParams.safeParse(req.params);
+  if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
+  const [row] = await db.select().from(recoveryRequestsTable)
+    .where(eq(recoveryRequestsTable.requestId, params.data.requestId));
+  if (!row) { res.status(404).json({ error: "Recovery request not found" }); return; }
+  let chainIntentHash: string | null = null;
+  let expiresAt: number | null = null;
+  try {
+    const metadataObject = JSON.parse(row.metadata ?? "{}") as Record<string, unknown>;
+    const intent = validateChainSigningIntent(metadataObject.chainIntent, row.requestId);
+    chainIntentHash = hashChainSigningIntent(intent);
+    expiresAt = intent.expiresAt;
+  } catch { /* Invalid or absent intent is a revoked authorization. */ }
+  const revoked = row.status !== "APPROVED" || Boolean(row.contestHash) ||
+    !row.proofHash || row.approvalCount < row.quorum ||
+    !row.timelockExpiresAt || row.timelockExpiresAt.getTime() > Date.now() ||
+    !expiresAt || expiresAt <= Math.floor(Date.now() / 1000);
+  res.json({
+    schema: "uruu.frostgate-operator-status.v1",
+    requestId: row.requestId,
+    chainIntentHash,
+    expiresAt,
+    status: row.status,
+    approvalCount: row.approvalCount,
+    quorum: row.quorum,
+    revoked,
+  });
+});
+
 // ─── Contest ───────────────────────────────────────────────────────────────
 
 router.post("/recovery/:requestId/contest", async (req, res): Promise<void> => {
