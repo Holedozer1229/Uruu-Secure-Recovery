@@ -292,79 +292,83 @@ router.post("/recovery/:requestId/guardian-approve", async (req, res): Promise<v
 
   const { requestId } = params.data;
   const { guardianId, signature } = body.data;
-  const [row] = await db.select().from(recoveryRequestsTable)
-    .where(eq(recoveryRequestsTable.requestId, requestId));
-  if (!row) { res.status(404).json({ error: "Recovery request not found" }); return; }
-  if (row.status !== "PROOF_SUBMITTED") {
-    res.status(409).json({ error: `Cannot approve in status ${row.status}` }); return;
-  }
-  if (!row.proofHash || !row.metadata) {
-    res.status(409).json({ error: "Proof or chain intent commitment is missing." }); return;
-  }
-
   try {
     const policy = loadRecoveryPolicy();
     const registry = loadGuardianRegistry();
-    const metadataObject = JSON.parse(row.metadata) as Record<string, unknown>;
-    const chainIntent = validateChainSigningIntent(metadataObject.chainIntent, requestId);
-    const message = buildGuardianApprovalMessage({
-      policyVersion: policy.version,
-      requestId,
-      guardianId,
-      newKeyCommit: row.newKeyCommit,
-      policyCommit: row.policyCommit,
-      requestedTimelock: row.requestedTimelock,
-      proofHash: row.proofHash,
-      chainIntentHash: hashChainSigningIntent(chainIntent),
-    });
     if (!registry.has(guardianId)) {
       res.status(403).json({ error: "Guardian is not in the configured trusted registry." }); return;
     }
-    if (!verifyGuardianApproval(guardianId, signature, message, registry)) {
-      res.status(401).json({ error: "Guardian Ed25519 approval signature is invalid." }); return;
-    }
 
-    const existingApprovals = await getApprovals(requestId);
-    if (existingApprovals.some((approval) => approval.guardianId === guardianId)) {
-      res.status(409).json({ error: "Guardian has already approved this recovery." }); return;
-    }
-    if (existingApprovals.some((approval) => {
-      try {
-        const signedMessage = buildGuardianApprovalMessage({
+    // Lock the request row while checking state, verifying and recording the
+    // approval. This prevents quorum races and approvals after the state closes.
+    const updated = await db.transaction(async (tx) => {
+      const [row] = await tx.select().from(recoveryRequestsTable)
+        .where(eq(recoveryRequestsTable.requestId, requestId)).for("update");
+      if (!row) throw new Error("NOT_FOUND: Recovery request not found.");
+      if (row.status !== "PROOF_SUBMITTED") throw new Error(`CONFLICT: Cannot approve in status ${row.status}.`);
+      if (!row.proofHash || !row.metadata) throw new Error("CONFLICT: Proof or chain intent commitment is missing.");
+
+      const metadataObject = JSON.parse(row.metadata) as Record<string, unknown>;
+      const chainIntent = validateChainSigningIntent(metadataObject.chainIntent, requestId);
+      const intentHash = hashChainSigningIntent(chainIntent);
+      const message = buildGuardianApprovalMessage({
+        policyVersion: policy.version, requestId, guardianId,
+        newKeyCommit: row.newKeyCommit, policyCommit: row.policyCommit,
+        requestedTimelock: row.requestedTimelock, proofHash: row.proofHash,
+        chainIntentHash: intentHash,
+      });
+      if (!verifyGuardianApproval(guardianId, signature, message, registry)) {
+        throw new Error("UNAUTHORIZED: Guardian Ed25519 approval signature is invalid.");
+      }
+
+      const existing = await tx.select().from(guardianApprovalsTable)
+        .where(eq(guardianApprovalsTable.requestId, requestId));
+      if (existing.some((item) => item.guardianId === guardianId)) {
+        throw new Error("CONFLICT: Guardian has already approved this recovery.");
+      }
+      for (const approval of existing) {
+        const existingMessage = buildGuardianApprovalMessage({
           policyVersion: policy.version, requestId, guardianId: approval.guardianId,
           newKeyCommit: row.newKeyCommit, policyCommit: row.policyCommit,
-          requestedTimelock: row.requestedTimelock, proofHash: row.proofHash!,
-          chainIntentHash: hashChainSigningIntent(chainIntent),
+          requestedTimelock: row.requestedTimelock, proofHash: row.proofHash,
+          chainIntentHash: intentHash,
         });
-        return !verifyGuardianApproval(approval.guardianId, approval.signature, signedMessage, registry);
-      } catch { return true; }
-    })) {
-      res.status(409).json({ error: "Stored guardian approval failed re-verification; recovery is frozen." }); return;
-    }
+        if (!verifyGuardianApproval(approval.guardianId, approval.signature, existingMessage, registry)) {
+          throw new Error("CONFLICT: Stored guardian approval failed re-verification; recovery frozen.");
+        }
+      }
 
-    // The DB unique index is the replay/race guard; the counter increment is
-    // atomic so concurrent distinct guardians cannot lose an approval.
-    await db.insert(guardianApprovalsTable).values({
-      requestId, guardianId, signature, approvedAt: new Date(),
+      await tx.insert(guardianApprovalsTable).values({
+        requestId, guardianId, signature, approvedAt: new Date(),
+      });
+      const newApprovalCount = row.approvalCount + 1;
+      const newStatus = newApprovalCount >= row.quorum ? "APPROVED" : "PROOF_SUBMITTED";
+      const [next] = await tx.update(recoveryRequestsTable).set({
+        approvalCount: newApprovalCount, status: newStatus,
+      }).where(and(
+        eq(recoveryRequestsTable.requestId, requestId),
+        eq(recoveryRequestsTable.status, "PROOF_SUBMITTED"),
+      )).returning();
+      if (!next) throw new Error("CONFLICT: Recovery state changed while recording approval.");
+
+      await tx.insert(eventsTable).values({
+        eventId: generateEventId(), eventType: "GuardianApproved", requestId,
+        dataJson: JSON.stringify({
+          guardianId, approvalCount: next.approvalCount, quorum: next.quorum,
+          policyVersion: policy.version, chainIntentHash: intentHash,
+        }),
+      });
+      return next;
     });
-    const [updated] = await db.update(recoveryRequestsTable).set({
-      approvalCount: sql`${recoveryRequestsTable.approvalCount} + 1`,
-      status: sql`CASE WHEN ${recoveryRequestsTable.approvalCount} + 1 >= ${recoveryRequestsTable.quorum} THEN 'APPROVED' ELSE ${recoveryRequestsTable.status} END`,
-    }).where(and(
-      eq(recoveryRequestsTable.requestId, requestId),
-      eq(recoveryRequestsTable.status, "PROOF_SUBMITTED"),
-    )).returning();
-    if (!updated) {
-      res.status(409).json({ error: "Recovery state changed while recording approval; inspect audit log." }); return;
-    }
-    await appendEvent("GuardianApproved", requestId, {
-      guardianId, approvalCount: updated.approvalCount, quorum: updated.quorum,
-      policyVersion: policy.version, chainIntentHash: hashChainSigningIntent(chainIntent),
-    });
+
     const approvals = await getApprovals(requestId);
     res.json(formatRequest(updated, approvals));
   } catch (error) {
-    res.status(503).json({ error: error instanceof Error ? error.message : "Guardian policy unavailable; request denied." });
+    const message = error instanceof Error ? error.message : "Guardian policy unavailable.";
+    const status = message.startsWith("NOT_FOUND:") ? 404 :
+      message.startsWith("UNAUTHORIZED:") ? 401 :
+      message.startsWith("CONFLICT:") ? 409 : 503;
+    res.status(status).json({ error: message.replace(/^(NOT_FOUND|UNAUTHORIZED|CONFLICT): /, "") });
   }
 });
 
