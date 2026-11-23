@@ -239,8 +239,13 @@ export function buildGuardianApprovalMessage(input: {
   timelockExpiresAt: string;
   chainIntentHash: string;
 }): GuardianApprovalMessage {
-  if (!HEX_32.test(input.proofHash) || !HEX_32.test(input.publicInputsHash) || !HEX_32.test(input.chainIntentHash) || !Number.isFinite(Date.parse(input.timelockExpiresAt))) {
-    throw new Error("Guardian approval requires committed proof and chain intent hashes.");
+  const ascii = /^[\x20-\x7e]{1,512}$/;
+  if (!HEX_32.test(input.proofHash) || !HEX_32.test(input.publicInputsHash) ||
+      !HEX_32.test(input.chainIntentHash) || !Number.isFinite(Date.parse(input.timelockExpiresAt)) ||
+      !ascii.test(input.policyVersion) || !ascii.test(input.requestId) ||
+      !ascii.test(input.guardianId) || !ascii.test(input.newKeyCommit) ||
+      !ascii.test(input.policyCommit) || !ascii.test(input.timelockExpiresAt)) {
+    throw new Error("Guardian approval fields are malformed or non-ASCII.");
   }
   return { schema: GUARDIAN_APPROVAL_SCHEMA, ...input };
 }
