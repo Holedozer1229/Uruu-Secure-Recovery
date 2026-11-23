@@ -65,7 +65,7 @@ Aethergate adds `authorized_intent::verify_uruu_authorization` and `require_exac
 - use their own guardian ID -> raw Ed25519 public-key hex registry;
 - verify the complete certificate locally;
 - compare the exact FROST SigningPackage message to the approved 32-byte sighash;
-- re-check `GET /recovery/:requestId/operator-status` immediately before any signing share;
+- re-check `GET /recovery/:requestId/operator-status` immediately before any signing share. The response includes a Unix `checkedAt` timestamp and is accepted by FROST for at most 30 seconds;
 - reject revoked, expired, contested, mismatched, or below-quorum requests.
 
 The current Aethergate FROST transport is not a deployed independent-operator network. Do not use its in-process DKG/demo orchestration as proof that five independent operators are deployed. Production requires separate operator processes, authenticated channels, protected shares, durable one-time nonce handling, and audited deployment.
