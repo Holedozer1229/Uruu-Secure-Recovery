@@ -16,6 +16,7 @@ import {
 import { generateRequestId, generateEventId } from "../lib/crypto.js";
 import {
   buildGuardianApprovalMessage,
+  guardianApprovalBytes,
   canonicalJson,
   evaluateRecoveryPolicy,
   hashChainSigningIntent,
@@ -249,6 +250,39 @@ router.post("/recovery/:requestId/submit-proof", async (req, res): Promise<void>
 });
 
 // ─── Guardian approve ──────────────────────────────────────────────────────
+
+router.get("/recovery/:requestId/guardian-challenge/:guardianId", async (req, res): Promise<void> => {
+  const params = GetRecoveryRequestParams.safeParse(req.params);
+  if (!params.success) { res.status(400).json({ error: params.error.message }); return; }
+  const guardianId = req.params.guardianId;
+  const [row] = await db.select().from(recoveryRequestsTable)
+    .where(eq(recoveryRequestsTable.requestId, params.data.requestId));
+  if (!row) { res.status(404).json({ error: "Recovery request not found" }); return; }
+  if (row.status !== "PROOF_SUBMITTED" || !row.proofHash || !row.metadata) {
+    res.status(409).json({ error: "Recovery is not ready for guardian approval." }); return;
+  }
+  try {
+    const policy = loadRecoveryPolicy();
+    const registry = loadGuardianRegistry();
+    if (!registry.has(guardianId)) { res.status(403).json({ error: "Guardian is not trusted." }); return; }
+    const metadataObject = JSON.parse(row.metadata) as Record<string, unknown>;
+    const intent = validateChainSigningIntent(metadataObject.chainIntent, row.requestId);
+    const message = buildGuardianApprovalMessage({
+      policyVersion: policy.version, requestId: row.requestId, guardianId,
+      newKeyCommit: row.newKeyCommit, policyCommit: row.policyCommit,
+      requestedTimelock: row.requestedTimelock, proofHash: row.proofHash,
+      chainIntentHash: hashChainSigningIntent(intent),
+    });
+    res.json({
+      message,
+      signingDomain: "URUU-GUARDIAN-APPROVAL",
+      signingBytesHex: guardianApprovalBytes(message).toString("hex"),
+      signatureEncoding: "lowercase-hex-ed25519-64-byte",
+    });
+  } catch (error) {
+    res.status(503).json({ error: error instanceof Error ? error.message : "Guardian challenge unavailable." });
+  }
+});
 
 router.post("/recovery/:requestId/guardian-approve", async (req, res): Promise<void> => {
   const params = GuardianApproveParams.safeParse(req.params);
