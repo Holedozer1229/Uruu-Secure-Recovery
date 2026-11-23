@@ -196,10 +196,13 @@ export interface ProofVerifierReceipt {
   verifierSig: string;
   timestamp: string;
   requestId: string;
+  accountId?: string | null;
+  newKeyCommit?: string | null;
 }
 
 export function verifyProofVerifierReceipt(receipt: ProofVerifierReceipt, requestId: string): boolean {
-  if (receipt.requestId !== requestId || !HEX_32.test(receipt.proofHash) ||
+  if (receipt.requestId !== requestId || typeof receipt.newKeyCommit !== "string" ||
+      !receipt.newKeyCommit || !HEX_32.test(receipt.proofHash) ||
       !HEX_32.test(receipt.publicInputsHash) || !HEX_SIGNATURE.test(receipt.verifierSig)) return false;
   const timestampMs = Date.parse(receipt.timestamp);
   if (!Number.isSafeInteger(timestampMs) || Math.abs(Date.now() - timestampMs) > 5 * 60 * 1000) return false;
@@ -212,6 +215,8 @@ export function verifyProofVerifierReceipt(receipt: ProofVerifierReceipt, reques
     requestId: receipt.requestId,
     proofHash: receipt.proofHash,
     publicInputsHash: receipt.publicInputsHash,
+    accountId: receipt.accountId ?? null,
+    newKeyCommit: receipt.newKeyCommit,
     timestamp: new Date(timestampMs).toISOString(),
   })}`, "utf8");
   try { return verifySignature(null, message, key, Buffer.from(receipt.verifierSig, "hex")); }
