@@ -4,6 +4,7 @@ export const GUARDIAN_APPROVAL_SCHEMA = "uruu.guardian-approval.v1" as const;
 export const SIGNING_INTENT_SCHEMA = "uruu.frostgate-signing-intent.v1" as const;
 const HEX_32 = /^[0-9a-f]{64}$/;
 const HEX_SIGNATURE = /^[0-9a-f]{128}$/;
+const MAX_U128 = (1n << 128n) - 1n;
 
 export interface RecoveryPolicy {
   version: string;
@@ -125,6 +126,9 @@ export function validateChainSigningIntent(value: unknown, requestId: string, no
   const amount = BigInt(intent.amountSats);
   const fee = BigInt(intent.feeSats);
   const total = intent.inputs.reduce((sum, input) => sum + BigInt(input.amountSats), 0n);
+  if (amount > MAX_U128 || fee > MAX_U128 || total > MAX_U128) {
+    throw new Error("Signing intent amount exceeds the supported 128-bit range.");
+  }
   if (amount + fee > total) throw new Error("Signing intent spends more than its committed inputs.");
   if ((intent.expiresAt as number) > nowSeconds + 900) {
     throw new Error("Signing intent expiry must be within the 15-minute authorization window.");
